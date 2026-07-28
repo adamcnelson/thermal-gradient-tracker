@@ -1,5 +1,7 @@
 # thermal-gradient-tracker
 
+GitHub: https://github.com/adamcnelson/thermal-gradient-tracker
+
 Mouse tracking, temperature extraction, stationary bout detection, and treatment-effect analysis for FLIR thermography `.seq` videos from the rodent thermal-gradient assay.
 
 **Pipeline overview:**
