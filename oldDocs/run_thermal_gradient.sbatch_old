@@ -1,0 +1,320 @@
+#!/bin/bash
+#
+# run_thermal_gradient.sbatch
+# ---------------------------------------------------------------------------
+# SLURM batch job for the thermal-gradient-tracker pipeline on the University
+# of Wyoming ARCC "MedicineBow" cluster.
+#
+# This script is a *teaching artifact* as well as a working job — it is
+# heavily commented so a teammate who has never used Slurm or MedicineBow
+# before can understand what every line does. See DEPLOY_MEDICINEBOW.md at
+# the repo root for the full step-by-step deployment guide.
+#
+# What this job does (see README.md for full pipeline detail):
+#   1. batch_track_temperatures.py  — track the mouse + extract temperatures
+#                                      for every .seq file (compute-heavy,
+#                                      this is almost all of the ~1 hour).
+#   2. batch_compute_bouts.py       — detect stationary rest bouts from the
+#                                      tracking output.
+#   3. join_metadata.py             — join tracking/bout data to the
+#                                      experimental metadata LUT.
+#   4. analyze_treatment_effects.py — fit treatment-effect models and write
+#                                      plots/tables.
+#
+# All four stages are already fully non-interactive in this codebase. The
+# interactive/manual QC scripts (create_arena_mask.py, select_training_frames.py,
+# train_mouse_detector.py) are NOT part of this job — tracking_config.json
+# (including its arena_polygon) is committed to the repo as a fixed input and
+# is only ever *read* here, never regenerated.
+# ---------------------------------------------------------------------------
+
+# =============================================================================
+# SLURM DIRECTIVES
+# =============================================================================
+# Every #SBATCH line below is a request to the scheduler. These are parsed by
+# `sbatch`, not bash — they must appear before any executable command in the
+# file (comments are fine).
+
+# --account is REQUIRED by ARCC policy. Replace with your project account,
+# e.g. as shown by `my_accounts` or the ARCC OnDemand portal. The job will be
+# rejected at submission time if this is left as the placeholder.
+#SBATCH --account=<YOUR_ARCC_PROJECT>
+
+# A human-readable name shown in `squeue`.
+#SBATCH --job-name=thermal_gradient
+
+# Wall-clock limit (HH:MM:SS). The pipeline takes ~1 hour serial on a desktop
+# PC; 2 hours gives headroom for a slower/shared compute node without being
+# so long that it loses scheduling priority. The ARCC "Fast" QoS/partition
+# caps wall time at 12h and is higher priority than the default "Normal"
+# queue (which allows up to 3 days) — a job this short should target Fast.
+# If your dataset is much larger than the one this was tuned on and 2h is not
+# enough, raise --time (up to 12:00:00 on Fast, or switch --partition/--qos to
+# Normal for longer jobs — see DEPLOY_MEDICINEBOW.md "Troubleshooting").
+#SBATCH --time=02:00:00
+
+# Partition/QoS selection. MedicineBow's exact partition/QoS names for "Fast"
+# were not verified from inside this coding session — confirm the correct
+# value with `sinfo` / `sacctmgr show qos` or ARCC support and edit below.
+# Leaving --partition unset lets Slurm pick a default partition; uncomment
+# and set explicitly once you've confirmed the Fast partition/QoS name.
+##SBATCH --partition=<CONFIRM_WITH_ARCC_E.G._fast>
+##SBATCH --qos=<CONFIRM_WITH_ARCC_E.G._fast>
+
+# Single node — this job is not MPI/multi-node; it is one Python process
+# running the four pipeline stages in sequence.
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+
+# CPUs for this task. batch_track_temperatures.py (via src/batch.py::process_batch)
+# processes .seq files **serially, one at a time** — it does not internally
+# fork worker processes. A modest core count still helps because individual
+# libraries used underneath (numpy/opencv/scikit-image) can use a handful of
+# threads for their own operations. 8 is a reasonable default; raise only if
+# you've confirmed underlying libraries benefit from more (diminishing
+# returns beyond ~8 for a serial-file loop). See the OPTIONAL "future: job
+# array" note near the bottom of this file for how to get real parallelism
+# across .seq files later.
+#SBATCH --cpus-per-task=8
+
+# Memory must be requested explicitly on MedicineBow — `--mem=0` (meaning
+# "all memory on the node") is disallowed by ARCC policy. 16G is a
+# conservative starting point for processing thermal .seq video frame-by-frame
+# with numpy/opencv. If the job is killed with an out-of-memory (oom-kill)
+# error (check the .err log and `sacct -j <jobid> --format=MaxRSS,State`),
+# raise this value (e.g. --mem=32G) and resubmit.
+#SBATCH --mem=16G
+
+# Email notifications. ALL = job begin, end, fail, requeue, etc. Replace the
+# placeholder with your actual email before submitting.
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=<YOUR_EMAIL@uwyo.edu>
+
+# Slurm stdout/stderr logs. %x = job name, %j = job ID. The `logs/` directory
+# is created below (mkdir -p) before this would be needed on resubmission;
+# Slurm itself creates the log files once the job starts, so `logs/` must
+# already exist at submission time — see DEPLOY_MEDICINEBOW.md step 5.
+#SBATCH --output=logs/%x_%j.out
+#SBATCH --error=logs/%x_%j.err
+
+# =============================================================================
+# FAIL FAST
+# =============================================================================
+# -e : exit immediately if any command exits non-zero
+# -u : treat unset variables as an error
+# -o pipefail : a pipeline's exit status is the last non-zero exit, not 0
+# This ensures a broken stage stops the whole job (and reports failure via
+# --mail-type=ALL) instead of silently continuing to the next stage on bad
+# data.
+set -euo pipefail
+
+# =============================================================================
+# USER-CONFIG BLOCK — every path a deployer must set lives here and ONLY here.
+# =============================================================================
+# Mirrors the README's philosophy: paths are passed as CLI arguments, source
+# code is never edited to point at a particular machine's data.
+#
+# REPO_DIR       — where this repo (thermal-gradient-tracker/) lives on
+#                   MedicineBow. Recommended: under /project/<your_project>/
+#                   (persistent, not purged). Do NOT put the real dataset
+#                   under $HOME — the home quota is only 50 GB.
+# SEQ_INPUT_DIR  — directory containing the cropped .seq files to process.
+#                   Large datasets belong in /project or /gscratch (note:
+#                   /gscratch is purged after 90 days of inactivity — never
+#                   keep the only copy of raw data there).
+# OUTPUT_DIR     — where trackingOutputs/ lands (bouts/ is derived under
+#                   BOUTS_DIR below, but pass OUTPUT_DIR to stage 1).
+# BOUTS_DIR      — where bout/analysis outputs land.
+# CONFIG_TRACKING — tracking_config.json, committed to the repo, contains the
+#                   pre-drawn arena_polygon. Not regenerated by this job.
+# CONFIG_ANALYSIS — analysis_config.json, committed to the repo.
+# LUT            — experimental metadata lookup table (CSV).
+# VENV_PATH      — path to the one-time project virtualenv (see
+#                   DEPLOY_MEDICINEBOW.md "One-time environment setup").
+REPO_DIR="<PATH_TO_REPO_ON_MEDICINEBOW>/thermal-gradient-tracker"
+SEQ_INPUT_DIR="<PATH_TO_CROPPED_SEQ_FILES>"
+OUTPUT_DIR="${REPO_DIR}/trackingOutputs"
+BOUTS_DIR="${REPO_DIR}/bouts"
+CONFIG_TRACKING="${REPO_DIR}/tracking_config.json"
+CONFIG_ANALYSIS="${REPO_DIR}/analysis_config.json"
+LUT="${REPO_DIR}/metadata/LUT_CLEAN_July6.csv"
+VENV_PATH="${REPO_DIR}/.venv"
+
+# Set to "--recursive" if SEQ_INPUT_DIR has session subfolders (matches the
+# README's "all subfolders at once" usage), or "" for a single flat folder.
+RECURSIVE_FLAG="--recursive"
+
+# =============================================================================
+# ENVIRONMENT SETUP
+# =============================================================================
+mkdir -p "${REPO_DIR}/logs"
+cd "${REPO_DIR}"
+
+echo "============================================================"
+echo "thermal-gradient-tracker :: SLURM job"
+echo "Job ID:      ${SLURM_JOB_ID:-N/A}"
+echo "Job name:    ${SLURM_JOB_NAME:-N/A}"
+echo "Node:        $(hostname)"
+echo "Start time:  $(date)"
+echo "Working dir: $(pwd)"
+echo "CPUs:        ${SLURM_CPUS_PER_TASK:-N/A}"
+echo "============================================================"
+
+# Load a Python module via LMOD. The exact module name/version available on
+# MedicineBow was not verified from this coding session — run
+# `module spider python` on a login node to find the right name (e.g.
+# something like "python/3.11" or "miniconda3") and update this line.
+# NOTE: unlike the quoted placeholders above, this is a bare shell command —
+# do not wrap the module name in angle brackets (`<`/`>` are redirection
+# operators to bash); just replace PYTHON_MODULE_PLACEHOLDER below with the
+# real module name/version, e.g. `module load python/3.11`.
+# See DEPLOY_MEDICINEBOW.md "One-time environment setup".
+module load PYTHON_MODULE_PLACEHOLDER
+
+# Activate the project virtualenv. This venv is created ONCE, ahead of time,
+# per DEPLOY_MEDICINEBOW.md — this job only activates it, it never runs
+# `pip install` itself (compute nodes may not have internet access, and
+# installing packages is not compute-bound work anyway).
+if [ ! -f "${VENV_PATH}/bin/activate" ]; then
+    echo "FATAL: virtualenv not found at ${VENV_PATH}" >&2
+    echo "       Run the one-time setup in DEPLOY_MEDICINEBOW.md first." >&2
+    exit 1
+fi
+source "${VENV_PATH}/bin/activate"
+echo "Python:      $(which python)  ($(python --version 2>&1))"
+
+# =============================================================================
+# PREFLIGHT CHECKS — abort loudly before burning compute time on bad input.
+# =============================================================================
+echo "------------------------------------------------------------"
+echo "Preflight checks"
+echo "------------------------------------------------------------"
+
+# 1) Cheap smoke test that the venv's packages actually import.
+python -c "import numpy, cv2, pandas, pydantic, statsmodels, sklearn, skimage, matplotlib" \
+    || { echo "FATAL: one or more required Python packages failed to import." >&2; exit 1; }
+echo "OK: core Python packages import cleanly."
+
+# 2) exiftool MUST resolve on the compute node (not just the login node —
+#    LMOD module state and PATH can differ between them). Without it, the
+#    pipeline silently falls back to an inaccurate linear temperature
+#    approximation instead of the FLIR Planck-equation conversion — a
+#    correctness bug, not a crash, so this MUST be a hard failure here.
+if ! command -v exiftool >/dev/null 2>&1; then
+    echo "FATAL: exiftool not found on compute node $(hostname)." >&2
+    echo "       Temperatures would silently fall back to an inaccurate linear" >&2
+    echo "       approximation without it (see README.md). Resolve this before" >&2
+    echo "       resubmitting: check 'module spider exiftool', or contact" >&2
+    echo "       arcc-help@uwyo.edu to request it be installed/made available." >&2
+    exit 1
+fi
+echo "OK: exiftool resolved at $(command -v exiftool) ($(exiftool -ver))"
+
+# 3) Input directory must exist and actually contain .seq files.
+if [ ! -d "${SEQ_INPUT_DIR}" ]; then
+    echo "FATAL: SEQ_INPUT_DIR does not exist: ${SEQ_INPUT_DIR}" >&2
+    exit 1
+fi
+if [ -z "$(find "${SEQ_INPUT_DIR}" -iname '*.seq' -print -quit)" ]; then
+    echo "FATAL: no .seq files found under ${SEQ_INPUT_DIR}" >&2
+    exit 1
+fi
+echo "OK: .seq input files found under ${SEQ_INPUT_DIR}"
+
+# 4) Config files and LUT must be present (all treated as fixed, committed
+#    inputs — this job never regenerates tracking_config.json's arena_polygon
+#    or any other config value).
+for f in "${CONFIG_TRACKING}" "${CONFIG_ANALYSIS}" "${LUT}"; do
+    if [ ! -f "${f}" ]; then
+        echo "FATAL: required input file not found: ${f}" >&2
+        exit 1
+    fi
+done
+echo "OK: tracking config, analysis config, and metadata LUT all present."
+echo "    tracking_config: ${CONFIG_TRACKING}"
+echo "    analysis_config: ${CONFIG_ANALYSIS}"
+echo "    LUT:              ${LUT}"
+
+mkdir -p "${OUTPUT_DIR}" "${BOUTS_DIR}"
+
+echo "------------------------------------------------------------"
+echo "Preflight checks passed. Starting pipeline."
+echo "------------------------------------------------------------"
+
+# =============================================================================
+# STAGE 1 — Tracking (compute-bound; this is nearly all of the ~1h runtime)
+# =============================================================================
+echo ""
+echo "=== [1/4] batch_track_temperatures.py :: START $(date) ==="
+python scripts/batch_track_temperatures.py \
+    --input-dir "${SEQ_INPUT_DIR}" \
+    --config "${CONFIG_TRACKING}" \
+    --output-dir "${OUTPUT_DIR}" \
+    ${RECURSIVE_FLAG}
+echo "=== [1/4] batch_track_temperatures.py :: END   $(date) ==="
+
+# =============================================================================
+# STAGE 2 — Bout detection
+# =============================================================================
+echo ""
+echo "=== [2/4] batch_compute_bouts.py :: START $(date) ==="
+python scripts/batch_compute_bouts.py \
+    --input-dir "${OUTPUT_DIR}" \
+    --config "${CONFIG_ANALYSIS}" \
+    --output-dir "${BOUTS_DIR}" \
+    --recursive
+echo "=== [2/4] batch_compute_bouts.py :: END   $(date) ==="
+
+# =============================================================================
+# STAGE 3 — Metadata join
+# =============================================================================
+echo ""
+echo "=== [3/4] join_metadata.py :: START $(date) ==="
+python scripts/join_metadata.py \
+    --tracking-dir "${OUTPUT_DIR}" \
+    --bouts-dir "${BOUTS_DIR}" \
+    --metadata "${LUT}" \
+    --config "${CONFIG_ANALYSIS}" \
+    --output-dir "${BOUTS_DIR}"
+echo "=== [3/4] join_metadata.py :: END   $(date) ==="
+
+# =============================================================================
+# STAGE 4 — Treatment-effect analysis
+# =============================================================================
+echo ""
+echo "=== [4/4] analyze_treatment_effects.py :: START $(date) ==="
+python scripts/analyze_treatment_effects.py \
+    --master "${BOUTS_DIR}/master_tracking_with_metadata.csv" \
+    --bout-table "${BOUTS_DIR}/bout_table.csv" \
+    --config "${CONFIG_ANALYSIS}" \
+    --output-dir "${BOUTS_DIR}"
+echo "=== [4/4] analyze_treatment_effects.py :: END   $(date) ==="
+
+echo ""
+echo "============================================================"
+echo "Pipeline complete: $(date)"
+echo "Tracking outputs:  ${OUTPUT_DIR}"
+echo "Bout/analysis outputs: ${BOUTS_DIR}"
+echo "============================================================"
+
+# =============================================================================
+# OPTIONAL / FUTURE OPTIMIZATION — NOT ENABLED. Read only.
+# =============================================================================
+# batch_track_temperatures.py processes .seq files one at a time (see
+# src/batch.py::process_batch — no internal multiprocessing). Tracking is
+# embarrassingly parallel *across files*, so if the dataset grows large
+# enough that a single serial run no longer comfortably fits the wall time
+# above, the natural next step is a Slurm JOB ARRAY: one array task per
+# session folder (or per .seq file), each running
+# `batch_track_temperatures.py --input-dir <one_subfolder>` independently,
+# followed by a single small follow-up job that runs stages 2-4 once all
+# array tasks finish (e.g. via `sbatch --dependency=afterok:<array_jobid>`).
+# That would look like adding, near the top of this file:
+#
+#   #SBATCH --array=0-N%<max_concurrent>
+#
+# and replacing SEQ_INPUT_DIR in stage 1 with the Nth session subfolder
+# (e.g. selected via `ls` into a bash array, indexed by $SLURM_ARRAY_TASK_ID).
+# This is deliberately NOT implemented here — a single correct serial job is
+# the priority for the current dataset size; do not add this complexity
+# unless a real run shows it's needed.

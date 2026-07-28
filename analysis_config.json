@@ -1,0 +1,36 @@
+{
+  "bouts": {
+    "position_smoothing_window_samples": 5,
+    "dispersion_window_samples": 5,
+    "dispersion_metric": "mad",
+    "stationary_dispersion_threshold_px": 3.0,
+    "velocity_smoothing_window_samples": 5,
+    "stationary_velocity_threshold_px_per_s": 4.0,
+    "qc_valid_only_for_dispersion": true,
+    "min_bout_duration_sec": 15.0,
+    "max_gap_merge_sec": 2.0,
+    "frame_rate_fps": 10.0
+  },
+  "analysis": {
+    "group_factors": [
+      "virus",
+      "injection",
+      "phase"
+    ],
+    "primary_contrast": {
+      "factor": "injection",
+      "levels": [
+        "DCZ",
+        "Vehicle"
+      ]
+    },
+    "random_effect": "mouse_id",
+    "stationary_states": [
+      "stationary",
+      "non_stationary"
+    ],
+    "trial_length_reference_sec": 3000,
+    "min_animals_for_lmm": 3,
+    "min_obs_per_group_for_lmm": 2
+  }
+}

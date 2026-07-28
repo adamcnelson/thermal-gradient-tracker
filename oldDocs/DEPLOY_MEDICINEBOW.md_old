@@ -1,0 +1,252 @@
+# Deploying `thermal-gradient-tracker` on MedicineBow (UW ARCC)
+
+This is a step-by-step guide for a teammate deploying the SLURM batch job for
+this pipeline on the University of Wyoming ARCC **MedicineBow** cluster for
+the first time. It assumes no prior Slurm or ARCC experience but does assume
+comfort with the Linux command line, SSH, and `git`.
+
+## What this pipeline does
+
+`thermal-gradient-tracker` analyzes FLIR `.seq` thermography videos from a
+rodent thermal-gradient assay: it tracks the mouse, extracts surface/floor
+temperatures, detects stationary rest bouts, joins experimental metadata, and
+fits treatment-effect models. See **`README.md`** at the repo root for full
+scientific and configuration detail (config parameters, output file formats,
+troubleshooting bout thresholds, etc.) — this manual does not duplicate that;
+it only covers getting the existing, already-configured pipeline running as
+a batch job on MedicineBow.
+
+The batch job (`run_thermal_gradient.sbatch`) runs four already-non-interactive
+stages in sequence:
+
+1. `batch_track_temperatures.py` — tracking + temperature extraction (the vast
+   majority of the ~1 hour runtime)
+2. `batch_compute_bouts.py` — stationary bout detection
+3. `join_metadata.py` — join to experimental metadata
+4. `analyze_treatment_effects.py` — treatment-effect models and plots
+
+**Important:** this repo also contains manual/interactive QC scripts
+(`create_arena_mask.py`, `select_training_frames.py`, `train_mouse_detector.py`)
+used earlier in development to draw the arena mask and tune segmentation.
+**These are not run on the cluster and have no place in the batch job.**
+`tracking_config.json` — including its already-drawn `arena_polygon` — is
+committed to the repo as a fixed input; the batch job only reads it.
+
+---
+
+## 1. Prerequisites
+
+- **ARCC project / account.** You need to be added to an ARCC project to get
+  a Slurm `--account` value. If you don't have one, ask your PI/lab lead
+  which ARCC project to join, or request one via ARCC support
+  (`arcc-help@uwyo.edu`).
+- **MedicineBow access**, either:
+  - **OnDemand** (easiest to start with): log into
+    `https://medicinebow.arcc.uwyo.edu` with your UWyo credentials. This
+    gives you a browser-based shell, file browser, and Jupyter/Desktop apps
+    without needing local SSH key setup.
+  - **SSH**, if you prefer a terminal: this requires an SSH key plus an ARCC
+    login certificate (short-lived, re-issued periodically) — see the ARCC
+    "Getting Started" wiki for the current SSH setup steps, or ask ARCC
+    support if you don't already have this configured.
+- Confirm you can open a shell on a **login node** (`ssh` prompt or OnDemand
+  "Clusters > MedicineBow Shell Access") before continuing.
+
+## 2. Getting the code onto MedicineBow
+
+Your home directory quota is small (**50 GB**) — do not put the repo or the
+`.seq` dataset there. Use `/project/<your_project>/` for both code and data
+(persistent, not purged). `/gscratch` is available for large scratch data but
+is **purged after 90 days of inactivity** — never keep the only copy of
+anything there.
+
+```bash
+# On a MedicineBow login node:
+mkdir -p /project/<your_project>/
+cd /project/<your_project>/
+git clone <YOUR_REPO_URL> thermal-gradient-tracker
+cd thermal-gradient-tracker
+```
+
+If you don't have the repo in a git remote yet, transfer it instead:
+- **Small transfers** (the code itself, configs): OnDemand's file browser
+  upload, or `scp`/`rsync` over SSH.
+- **The `.seq` dataset** (potentially large): use
+  [Globus](https://www.globus.org/) via the ARCC Globus endpoint for
+  MedicineBow rather than `scp` — it's far more reliable for large transfers
+  and can resume on failure. See the ARCC wiki's Globus page, or ask
+  `arcc-help@uwyo.edu` if you're not already set up with a Globus endpoint.
+
+Place the `.seq` input dataset under `/project/<your_project>/` (or
+`/gscratch` if it's large and you also keep a durable copy elsewhere) — not
+under your home directory.
+
+## 3. One-time environment setup
+
+This is done **once** per project space, from a login node (it's not
+compute-intensive, so it's fine on the login node — just don't run the
+*pipeline itself* there).
+
+```bash
+cd /project/<your_project>/thermal-gradient-tracker
+
+# Find the available Python module (name/version will be MedicineBow-specific —
+# confirm and note whatever it reports; the exact string wasn't verified from
+# outside the cluster and is a placeholder in the sbatch script):
+module spider python
+
+# Load whatever module `module spider` recommends, e.g.:
+module load python/3.11     # <- replace with the actual module name/version
+
+# Create the project virtualenv ONCE, in the project space:
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Resolve `exiftool` (hard dependency)
+
+The pipeline uses `exiftool` to read FLIR Planck calibration constants for
+accurate temperature conversion. **Without it, temperatures silently fall
+back to an inaccurate linear approximation** — no crash, just wrong numbers —
+so this must be confirmed working before a real run.
+
+```bash
+module spider exiftool     # check if ARCC provides it as a module
+which exiftool              # or check if it's already on PATH
+```
+
+- If a module exists, note it — you'll need to `module load` it in the
+  sbatch script alongside the Python module.
+- If neither works, request it from ARCC support (`arcc-help@uwyo.edu`), or
+  install a self-contained copy under your project space and add it to
+  `PATH` (exiftool is a single Perl script + libraries; see
+  [exiftool.org](https://exiftool.org) for the standalone tarball).
+
+**Critical: verify `exiftool` resolves on a *compute* node, not just the
+login node.** Loaded modules and `PATH` can differ between them. Run a
+one-off interactive job to check:
+
+```bash
+srun --account=<YOUR_ARCC_PROJECT> --time=00:05:00 --mem=2G --pty bash
+# once you have a compute-node shell:
+module load <exiftool module, if applicable>
+which exiftool && exiftool -ver
+exit
+```
+
+If this fails on the compute node even though it worked on the login node,
+you likely need to add the corresponding `module load` line inside
+`run_thermal_gradient.sbatch` itself (compute nodes start with a fresh
+environment — they do not inherit your login shell's loaded modules).
+
+### Place the metadata LUT and confirm configs
+
+```bash
+# metadata/LUT_CLEAN_July6.csv should already be in the repo if it was
+# committed; if not, copy it in:
+cp /path/to/LUT_CLEAN_July6.csv metadata/
+
+# Confirm the fixed config artifacts are present and already configured —
+# these are committed to the repo and are NEVER regenerated by the batch job:
+cat tracking_config.json    # should already have a non-null "arena_polygon"
+cat analysis_config.json
+```
+
+**Do not run** `create_arena_mask.py`, `select_training_frames.py`, or
+`train_mouse_detector.py` on the cluster — these are interactive, require a
+person at a screen, and are not part of the batch job. If `arena_polygon` is
+missing or you believe the geometry has changed, that has to be redone
+locally (e.g. on the original desktop) and the updated `tracking_config.json`
+re-committed/re-copied — flag this to Adam rather than trying to regenerate
+it on MedicineBow.
+
+## 4. Configure the sbatch script
+
+Open `run_thermal_gradient.sbatch` and edit the **two blocks** marked for
+editing — do not need to touch anything else in the file:
+
+**A. `#SBATCH` directives near the top:**
+- `--account=<YOUR_ARCC_PROJECT>` → your actual ARCC project/account.
+- `--mail-user=<YOUR_EMAIL@uwyo.edu>` → your email.
+- The commented-out `--partition`/`--qos` lines → uncomment and set once
+  you've confirmed the "Fast" QoS/partition name with `sinfo` or ARCC
+  support (the exact name wasn't verified from outside the cluster).
+
+**B. The `USER-CONFIG BLOCK` (plain bash variables, further down):**
+
+| Variable | Set to |
+|---|---|
+| `REPO_DIR` | Absolute path to this repo on MedicineBow, e.g. `/project/<your_project>/thermal-gradient-tracker` |
+| `SEQ_INPUT_DIR` | Absolute path to your `.seq` input dataset |
+| `CONFIG_TRACKING`, `CONFIG_ANALYSIS`, `LUT` | Usually left as-is (they default to files inside `REPO_DIR`) |
+| `VENV_PATH` | Usually left as-is (`${REPO_DIR}/.venv`, created in step 3) |
+| `RECURSIVE_FLAG` | `--recursive` if `SEQ_INPUT_DIR` has session subfolders, or `""` if it's one flat folder of `.seq` files |
+
+Also confirm the `module load PYTHON_MODULE_PLACEHOLDER` line (and, if
+needed, an `exiftool` module load line) matches what you found in step 3.
+
+No other lines need editing — every path the deployer must set lives in
+these two blocks, per the script's own header comments.
+
+## 5. Submit and monitor
+
+```bash
+cd /project/<your_project>/thermal-gradient-tracker
+mkdir -p logs                       # Slurm needs this to exist before the job starts
+sbatch run_thermal_gradient.sbatch
+```
+
+This prints a job ID. Useful commands:
+
+```bash
+squeue --me                         # see your queued/running jobs
+squeue -j <jobid>                   # status of a specific job
+tail -f logs/thermal_gradient_<jobid>.out   # follow the log live
+scancel <jobid>                     # cancel a job
+sacct -j <jobid> --format=JobID,State,Elapsed,MaxRSS,ExitCode   # post-mortem
+```
+
+You'll also get an email at each job state transition (`--mail-type=ALL`).
+
+**Never run the pipeline scripts directly on a login node** — they are
+compute-intensive and long-running (well over ARCC's 10-minute login-node
+limit). Always go through `sbatch`.
+
+## 6. Retrieve results
+
+Outputs land under, relative to `REPO_DIR`:
+
+- `trackingOutputs/` — per-file tracking CSVs and QC images/plots (stage 1)
+- `bouts/` — bout tables, metadata-joined master table, and
+  `analysis_tables/` / `analysis_plots/` / `analysis_README.txt` (stages 2–4)
+
+See `README.md`'s "Output file reference" section for the full column/file
+breakdown.
+
+To pull results back to your local machine:
+
+```bash
+# from your local machine:
+rsync -avz <username>@medicinebow.arcc.uwyo.edu:/project/<your_project>/thermal-gradient-tracker/bouts/ ./bouts/
+rsync -avz <username>@medicinebow.arcc.uwyo.edu:/project/<your_project>/thermal-gradient-tracker/trackingOutputs/ ./trackingOutputs/
+```
+
+or use OnDemand's file browser to download individual files/folders, or
+Globus for large transfers.
+
+## 7. Troubleshooting
+
+| Symptom | Likely cause / fix |
+|---|---|
+| Job fails almost immediately, log shows `FATAL: exiftool not found on compute node` | `exiftool` isn't on `PATH` on the *compute* node even if it works on login. Add/fix a `module load` line for it in the sbatch script, or install a project-local copy — see step 3. |
+| Job killed, log/`sacct` shows `OUT_OF_MEMORY` / `oom-kill` | Raise `--mem` in the `#SBATCH` header (e.g. `16G` → `32G`) and resubmit. |
+| Job stays `PENDING` in `squeue` for a long time | The requested `--time`/partition may be lower priority or resources are busy. Try a shorter `--time` (schedules sooner) or confirm you're targeting the "Fast" QoS/partition, not "Normal". `squeue -j <jobid> --start` shows the estimated start time; `sprio -j <jobid>` shows priority factors. |
+| `metadata_join_report.csv` has `unmatched` rows | Not a Slurm issue — a metadata/filename mismatch. See `README.md`'s "Join misses" troubleshooting section (filename pattern vs. LUT `Video_name_SEQ` column). |
+| Temperatures look linear/off even though the job succeeded | `exiftool` ran but Planck constants weren't found for some files, or the compute-node check passed but a specific file has bad EXIF. Check the per-file log output from stage 1 for `exiftool not found or Planck constants missing` warnings. |
+| Anything else / cluster-specific errors (`module` not found, partition rejected, account invalid) | Contact ARCC support: **`arcc-help@uwyo.edu`** |
+
+---
+
+For pipeline internals, config parameter meaning, bout-threshold tuning, and
+full output schemas, see **`README.md`** at the repo root.

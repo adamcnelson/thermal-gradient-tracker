@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.egg-info/
+
+# OS / editor
+.DS_Store
+
+# Claude Code local settings (not meant to be shared)
+.claude/
+
+# Lab metadata (contains animal IDs / treatment conditions — copied in locally per README)
+metadata/*.csv
+
+# Generated pipeline outputs (recreated automatically by src/paths.py on each run)
+trackingOutputs/
+bouts/
+mask_preview/
+preview_tracking/
+
+# Stray debug image at repo root — not part of the documented project structure
+/07-28-25_4540_B_4541_F_Test3-004_Front_frame004785.png
