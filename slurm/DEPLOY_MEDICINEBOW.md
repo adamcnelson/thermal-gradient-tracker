@@ -106,6 +106,14 @@ git clone <YOUR_REPO_URL> thermal-gradient-tracker
 cd thermal-gradient-tracker
 ```
 
+here's what I did (July 28 2026)
+```
+mkdir -p /project/huddlevidmicro/anelso74/
+cd /project/huddlevidmicro/anelso74/
+git clone https://github.com/adamcnelson/thermal-gradient-tracker.git
+cd thermal-gradient-tracker
+```
+
 Since we're actively iterating on the code, pulling updates is just:
 
 ```bash
@@ -334,24 +342,35 @@ Alcova, e.g. `results_<runname>_<date>/`, so results from different runs
 don't overwrite each other. Outputs are small (CSVs + PNGs), so this is cheap
 and easy to verify by hand afterward.
 
-> **⚠ PLACEHOLDER — pending ARCC's advice.** The exact mechanism for the
-> MedicineBow → Alcova transfer (push from MedicineBow, pull from the Alcova
-> side, or Globus/OnDemand) is an open question flagged to ARCC because of
-> the POSIX↔ACL permission asymmetry described in section 1. **Do not
-> substitute an ad hoc `cp`/`rsync` from MedicineBow to Alcova here without
-> confirming with ARCC first** — this is exactly the fragile write direction
-> section 1 warns about.
->
-> ```bash
-> # <<< TRANSFER COMMAND PLACEHOLDER — fill in once ARCC advises >>>
-> # e.g. something like:
-> #   rsync -avz /project/<your_project>/thermal-gradient-tracker/bouts/ \
-> #       /cluster/alcova/bedfordlab/<path>/results_<runname>_<date>/bouts/
-> # but do NOT treat this as confirmed working until ARCC signs off.
-> ```
+**Resolved with ARCC (2026-07-28): use Globus, not an ad hoc `cp`/`rsync`.**
+ARCC's stated reasoning is the same POSIX↔ACL permission asymmetry described
+in section 1 — a plain `cp`/`rsync` from MedicineBow can silently mishandle
+Alcova's ACL permissions, where Globus handles the translation correctly.
+ARCC's recommendation, verbatim: *"try a single run or a small subset with
+whatever is easier for you first and then test[ing] before going forward."*
 
-Until this is resolved, treat the MedicineBow copy as the working copy and
-coordinate with Adam before relying on Alcova as the durable copy of a given
+1. Log into https://app.globus.org with your UWyo credentials.
+2. Find the ARCC-hosted collection that exposes both MedicineBow
+   (`/cluster/medbow/...`) and Alcova (`/cluster/alcova/...`) storage. The
+   exact collection name has changed across ARCC's docs (seen referred to as
+   both "ARCC Medicinebow" and "ARCC Teton" in different places) — don't
+   hardcode one here; confirm the current name from ARCC's own docs:
+   - [Globus — ARCC Wiki](https://arccwiki.atlassian.net/wiki/spaces/DOCUMENTAT/pages/1757446145)
+   - [Globus Web Interface — arccwiki](https://arccwiki.uwyo.edu/index.php/Globus_Web_Interface)
+   - [Data Moving and Access — ARCC Wiki](https://arccwiki.atlassian.net/wiki/spaces/DOCUMENTAT/pages/1559592966)
+3. Source: `/cluster/medbow/<your_project>/thermal-gradient-tracker/{trackingOutputs,bouts}`
+4. Destination: a new `results_<runname>_<date>/` folder under
+   `/cluster/alcova/bedfordlab/ThermalGradient/...`
+5. **Test small first, per ARCC's advice**: transfer a small subset (e.g.
+   just `bouts/metadata_join_report.csv` and a couple of QC images) and
+   confirm on the Alcova side that (a) the transfer succeeded and (b)
+   everyone in the lab who should be able to read the results actually can —
+   ACL permissions need to carry over correctly, which is exactly what a
+   plain `cp`/`rsync` risks getting wrong. Only transfer the full result set
+   once that's confirmed.
+
+Until you've done that small-subset test, treat the MedicineBow copy as the
+working copy rather than relying on Alcova as the durable copy of a given
 run's results.
 
 ## 13. Troubleshooting

@@ -81,6 +81,18 @@
 # below if it differs from "fast".
 #SBATCH --qos=fast
 ##SBATCH --partition=<CONFIRM_WITH_ARCC_IF_REQUIRED_ALONGSIDE_QOS>
+# CONFIRMED 2026-07-28: this cluster's fleet has (at least) two CPU
+# generations — "broadwell" (2016 Xeon E5 v4, no AVX-512) and "icelake"
+# (modern Xeon Gold, AVX-512). The venv's numpy wheel crashes with "Illegal
+# instruction" on import on broadwell nodes even after trying
+# OPENBLAS_CORETYPE and NPY_DISABLE_CPU_FEATURES workarounds and downgrading
+# numpy — root cause not fully isolated (looked like a CPU-feature
+# misdetection under Slurm's job isolation, not a numpy-version issue, since
+# it reproduced on multiple numpy versions). Constraining to icelake is the
+# fix that was actually confirmed to work; check `sinfo -o "%f" | tr ',' '\n'
+# | sort -u` for the current set of CPU-generation feature tags if this
+# cluster's fleet changes.
+#SBATCH --constraint=icelake
 
 # Single node — this job is not MPI/multi-node; it is one Python process
 # running the four pipeline stages in sequence.
@@ -199,20 +211,24 @@ echo "Output (MedicineBow only):  ${OUTPUT_DIR}"
 echo "                             ${BOUTS_DIR}"
 echo "============================================================"
 
-# Load a Python module via LMOD. The exact module name/version available on
-# MedicineBow was not independently re-verified from inside this coding
-# session — run `module spider python` on a login node to find the right
-# name (e.g. something like "python/3.11" or "miniconda3") and update this
-# line. NOTE: unlike the quoted placeholders above, this is a bare shell
-# command — do not wrap the module name in angle brackets (`<`/`>` are
-# redirection operators to bash); just replace PYTHON_MODULE_PLACEHOLDER
-# below with the real module name/version, e.g. `module load python/3.11`.
-# See DEPLOY_MEDICINEBOW.md "One-time environment setup".
-module load PYTHON_MODULE_PLACEHOLDER
+# Load Python via LMOD. CONFIRMED 2026-07-28: python/3.12.0 requires a
+# prerequisite compiler module first (Lmod hierarchy) — either gcc/13.2.0 or
+# gcc/14.2.0; ARCC flags gcc/13.2.0 as deprecated, so use gcc/14.2.0. We are
+# not compiling anything against gcc ourselves; it's purely an Lmod
+# prerequisite to expose the python module. If this cluster's available
+# versions change, run `module spider python` on a login node to find the
+# current name, and `module spider python/<version>` to see what it requires.
+module load gcc/14.2.0
+module load python/3.12.0
 
-# If exiftool is provided as an LMOD module on MedicineBow rather than a
-# project-local install, load it here too (see DEPLOY_MEDICINEBOW.md step 5).
-# Leave commented if you installed exiftool into the project space instead.
+# exiftool: CONFIRMED 2026-07-28 there is no exiftool LMOD module on this
+# cluster (`module spider exiftool` finds nothing) — install a self-contained
+# copy under the project space per DEPLOY_MEDICINEBOW.md step 5 (a single
+# Perl script + lib/ dir, no compilation needed) and point PATH at it here.
+# Update the version number below to match whatever you actually installed.
+export PATH="${REPO_DIR}/vendor/Image-ExifTool-13.59:${PATH}"
+# If a future ARCC software update adds exiftool as an LMOD module instead,
+# load it here and remove the export line above.
 # module load EXIFTOOL_MODULE_PLACEHOLDER
 
 # Activate the project virtualenv. This venv is created ONCE, ahead of time,
@@ -315,7 +331,8 @@ python scripts/batch_compute_bouts.py \
     --input-dir "${OUTPUT_DIR}" \
     --config "${CONFIG_ANALYSIS}" \
     --output-dir "${BOUTS_DIR}" \
-    --recursive
+    --recursive \
+    --overwrite
 echo "=== [2/4] batch_compute_bouts.py :: END   $(date) ==="
 
 # =============================================================================
@@ -328,7 +345,8 @@ python scripts/join_metadata.py \
     --bouts-dir "${BOUTS_DIR}" \
     --metadata "${LUT}" \
     --config "${CONFIG_ANALYSIS}" \
-    --output-dir "${BOUTS_DIR}"
+    --output-dir "${BOUTS_DIR}" \
+    --overwrite
 echo "=== [3/4] join_metadata.py :: END   $(date) ==="
 
 # =============================================================================
@@ -340,7 +358,8 @@ python scripts/analyze_treatment_effects.py \
     --master "${BOUTS_DIR}/master_tracking_with_metadata.csv" \
     --bout-table "${BOUTS_DIR}/bout_table.csv" \
     --config "${CONFIG_ANALYSIS}" \
-    --output-dir "${BOUTS_DIR}"
+    --output-dir "${BOUTS_DIR}" \
+    --overwrite
 echo "=== [4/4] analyze_treatment_effects.py :: END   $(date) ==="
 
 echo ""
