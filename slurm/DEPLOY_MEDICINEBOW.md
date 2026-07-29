@@ -338,40 +338,70 @@ bout counts.
 the outputs in step 11 — it is never done automatically inside the job.**
 
 Copy the finished outputs from MedicineBow into a **run-named folder** on
-Alcova, e.g. `results_<runname>_<date>/`, so results from different runs
-don't overwrite each other. Outputs are small (CSVs + PNGs), so this is cheap
-and easy to verify by hand afterward.
+Alcova, e.g. `SLURM_RESULTS/results_<runname>_<date>/`, so results from
+different runs don't overwrite each other. Outputs are small (CSVs + PNGs),
+so this is cheap and easy to verify by hand afterward.
 
-**Resolved with ARCC (2026-07-28): use Globus, not an ad hoc `cp`/`rsync`.**
-ARCC's stated reasoning is the same POSIX↔ACL permission asymmetry described
-in section 1 — a plain `cp`/`rsync` from MedicineBow can silently mishandle
-Alcova's ACL permissions, where Globus handles the translation correctly.
-ARCC's recommendation, verbatim: *"try a single run or a small subset with
-whatever is easier for you first and then test[ing] before going forward."*
+**Confirmed with ARCC and validated end-to-end 2026-07-28: use Globus, not an
+ad hoc `cp`/`rsync`.** ARCC's stated reasoning is the same POSIX↔ACL
+permission asymmetry described in section 1 — a plain `cp`/`rsync` from
+MedicineBow can silently mishandle Alcova's ACL permissions, where Globus
+handles the translation correctly (confirmed below — the transferred files'
+ACLs correctly inherited the lab's group permissions, not just an
+owner-only grant). ARCC's recommendation, verbatim: *"try a single run or a
+small subset with whatever is easier for you first and then test[ing] before
+going forward."*
 
-1. Log into https://app.globus.org with your UWyo credentials.
-2. Find the ARCC-hosted collection that exposes both MedicineBow
-   (`/cluster/medbow/...`) and Alcova (`/cluster/alcova/...`) storage. The
-   exact collection name has changed across ARCC's docs (seen referred to as
-   both "ARCC Medicinebow" and "ARCC Teton" in different places) — don't
-   hardcode one here; confirm the current name from ARCC's own docs:
-   - [Globus — ARCC Wiki](https://arccwiki.atlassian.net/wiki/spaces/DOCUMENTAT/pages/1757446145)
-   - [Globus Web Interface — arccwiki](https://arccwiki.uwyo.edu/index.php/Globus_Web_Interface)
-   - [Data Moving and Access — ARCC Wiki](https://arccwiki.atlassian.net/wiki/spaces/DOCUMENTAT/pages/1559592966)
-3. Source: `/cluster/medbow/<your_project>/thermal-gradient-tracker/{trackingOutputs,bouts}`
-4. Destination: a new `results_<runname>_<date>/` folder under
-   `/cluster/alcova/bedfordlab/ThermalGradient/...`
-5. **Test small first, per ARCC's advice**: transfer a small subset (e.g.
-   just `bouts/metadata_join_report.csv` and a couple of QC images) and
-   confirm on the Alcova side that (a) the transfer succeeded and (b)
-   everyone in the lab who should be able to read the results actually can —
-   ACL permissions need to carry over correctly, which is exactly what a
-   plain `cp`/`rsync` risks getting wrong. Only transfer the full result set
-   once that's confirmed.
+1. Go to https://app.globus.org and log in with your UWyo credentials.
+2. In the File Manager (two-panel view), select the **"Medicine Bow"**
+   collection in **both** panels. This one collection covers both
+   `/cluster/medbow/...` and `/cluster/alcova/...` paths — there is no
+   separate "Alcova"/"Teton" collection to search for (searching those terms
+   returns nothing useful; an unrelated "S3" option may show up in a general
+   "ARCC" search — that's a different storage service, not Alcova, ignore
+   it). If `/cluster/alcova/...` doesn't resolve when typed into a panel,
+   double check that panel's collection is actually set to "Medicine Bow"
+   and not something else.
+3. **Left panel (source)**: `/cluster/medbow/<your_project>/thermal-gradient-tracker/`
+4. **Right panel (destination)**: `/cluster/alcova/bedfordlab/ThermalGradient/SLURM_RESULTS/`
+   — create a new folder here named `results_<runname>_<date>/` (Globus's
+   file manager has a "New Folder" button; no need to `mkdir` this from a
+   MedicineBow shell — that would be exactly the fragile POSIX→ACL write
+   path being avoided by using Globus in the first place).
+5. **Test small first, per ARCC's advice**: in the left panel select just
+   `bouts/metadata_join_report.csv` and a couple of QC images, and transfer
+   only those into the new folder. Globus runs transfers as background
+   tasks — check the **Activity** tab or wait for the completion email.
+6. **Verify the small test — content AND permissions, not just "did it
+   arrive":**
+   ```bash
+   cat /cluster/alcova/bedfordlab/ThermalGradient/SLURM_RESULTS/results_<runname>_<date>/metadata_join_report.csv | head -5
+   ```
+   If this reads back cleanly but `ls -la` on the same file shows all-dashes
+   permissions (`----------`) — that's **expected, not a bug**: Alcova uses
+   NFSv4/Windows-style ACLs, and the legacy POSIX mode bits `ls -l` shows are
+   not authoritative on this filesystem. Check the real permissions with:
+   ```bash
+   nfs4_getfacl /cluster/alcova/bedfordlab/ThermalGradient/SLURM_RESULTS/results_<runname>_<date>/metadata_join_report.csv
+   ```
+   (Not `getfacl` — that's the POSIX ACL tool and hangs indefinitely on this
+   filesystem rather than erroring; Ctrl+C out of it if you run it by
+   mistake.) A healthy result has a **group** entry (prefixed `g`, e.g.
+   `uwit-research-bedfordlab-users@windows.uwyo.edu`) with read (`r`)
+   access, and every entry marked `I` (inherited from the parent directory)
+   — that means Globus correctly preserved the lab's existing group ACL
+   rather than creating a narrow, owner-only grant on the new file. If you
+   only see your own individual username with no group entry, or entries
+   aren't marked inherited, stop and go back to ARCC before trusting the
+   full transfer — that would mean other lab members likely can't read it.
+7. Once verified, transfer the rest: back in the File Manager, select
+   `trackingOutputs/` and `bouts/` in the left panel and transfer them into
+   the same destination folder. This is the full dataset, so it'll take a
+   while — treat it as a background task, not something to watch live.
 
-Until you've done that small-subset test, treat the MedicineBow copy as the
-working copy rather than relying on Alcova as the durable copy of a given
-run's results.
+Until you've done that small-subset verification (steps 5–6), treat the
+MedicineBow copy as the working copy rather than relying on Alcova as the
+durable copy of a given run's results.
 
 ## 13. Troubleshooting
 
