@@ -31,12 +31,14 @@ class BoutsConfig(BaseModel):
     min_bout_duration_sec: float = Field(10.0, description="Minimum stationary bout length")
     max_gap_merge_sec: float = Field(3.0, description="Max gap to merge two bouts")
     frame_rate_fps: float = Field(
-        10.0,
+        8.0,
         description=(
             "Nominal camera frame rate. Not currently consumed by the pipeline — bout timing "
             "is derived entirely from elapsed_time_sec in the tracking CSV, which is computed "
             "from TrackingConfig.camera_fps. Kept here for documentation/future use; keep it "
-            "in sync with camera_fps in tracking_config.json."
+            "in sync with camera_fps in tracking_config.json. Camera is configured for 10 fps "
+            "but drops frames in practice — 8 is the confirmed true rate (v7 Stage 0 audit, "
+            "2026-08-12)."
         ),
     )
 

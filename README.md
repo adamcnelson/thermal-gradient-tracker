@@ -274,7 +274,7 @@ Outputs:
 | `max_mouse_area_px` | 10000 | Max mouse blob area to accept |
 | `background_n_frames` | 200 | Frames used to build the temporal median background (used for both segmentation and, since Issue 1, "floor" temperature) |
 | `segmentation_threshold_sigma` | 3.0 | Global foreground threshold: mean + N×std |
-| `camera_fps` | 10.0 | Real camera acquisition rate; converts frame_number to elapsed_time_sec |
+| `camera_fps` | 8.0 | Real camera acquisition rate; converts frame_number to elapsed_time_sec. Camera is configured for 10 fps but drops frames — 8 is the confirmed true rate (`.seq` EXIF `FrameRate` tag, v7 Stage 0 audit, 2026-08-12) |
 | `enable_local_fallback` | `true` | Enable local-fallback recovery (Issue 1) when the global threshold loses the mouse |
 | `local_fallback_search_radius_px` | 25 | Symmetric window half-width/height around the last centroid for local-fallback recovery |
 | `local_fallback_threshold_percentile` | 80.0 | Percentile of the local window's foreground score used as the fallback threshold |
@@ -294,7 +294,7 @@ Outputs:
 | `qc_valid_only_for_dispersion` | `true` | Use only `qc_flag==ok` frames for dispersion |
 | `min_bout_duration_sec` | 15.0 | Minimum length to accept a stationary bout |
 | `max_gap_merge_sec` | 6.0 | Maximum gap to merge two adjacent bouts (raised from 2.0 in Issue 1 — see Step 8) |
-| `frame_rate_fps` | 10.0 | Not currently consumed by the pipeline — bout timing comes from `elapsed_time_sec`, which is computed from `camera_fps` in `tracking_config.json`. Kept in sync for documentation |
+| `frame_rate_fps` | 8.0 | Not currently consumed by the pipeline — bout timing comes from `elapsed_time_sec`, which is computed from `camera_fps` in `tracking_config.json`. Kept in sync for documentation |
 
 ### `analysis_config.json` — `analysis` block
 
@@ -317,7 +317,7 @@ Outputs:
 |---|---|
 | `video_file` | Source `.seq` filename |
 | `frame_number` | Frame index (0-based) |
-| `elapsed_time_sec` | Elapsed time, computed from `camera_fps` in `tracking_config.json` (10 fps) |
+| `elapsed_time_sec` | Elapsed time, computed from `camera_fps` in `tracking_config.json` (8 fps — camera is configured for 10 fps but drops frames in practice; confirmed via `.seq` EXIF, v7 Stage 0 audit) |
 | `mouse_surface_temp_mean/median` | Mouse surface temperature (°C), from the live frame |
 | `floor_temp_mean/median` | "Floor"/location temperature (°C) — as of Issue 1, read from the historical background at the *same footprint* as the mouse ROI, not a live adjacent ROI. This is deliberate: it's robust to local gradient irregularities (warps/bubbles/arches) that would make a nearby live reading unrepresentative of the mouse's actual position |
 | `mouse_minus_floor_temp_mean` | Mouse − floor temperature (°C); thermal preference proxy |

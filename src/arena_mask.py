@@ -74,8 +74,13 @@ class TrackingConfig(BaseModel):
         ),
     )
     camera_fps: float = Field(
-        10.0,
-        description="Real camera acquisition frame rate. Used to convert frame_number to elapsed_time_sec.",
+        8.0,
+        description=(
+            "Real camera acquisition frame rate. Used to convert frame_number to "
+            "elapsed_time_sec. Camera is configured for 10 fps but drops frames in "
+            "practice — confirmed via .seq EXIF (FrameRate tag) on real session "
+            "files during the v7 Stage 0 audit (2026-08-12); 8 is the true rate."
+        ),
     )
 
     # Local-fallback recovery (Issue 1): when the global adaptive threshold finds no
