@@ -38,6 +38,12 @@ BOUTS_REFERENCE_DIR = BOUTS_DIR / "reference"
 BOUTS_ANALYSIS_TABLES_DIR = BOUTS_DIR / "analysis_tables"
 BOUTS_ANALYSIS_PLOTS_DIR = BOUTS_DIR / "analysis_plots"
 
+# ── v7 landmarks: per-session RGB<->thermal homography calibration ─────────
+# Small, hand-clicked correspondence files (see scripts/calibrate_homography.py)
+# — unlike the generated-output dirs above, these are NOT gitignored: a human
+# spent effort producing them and they aren't cheaply regenerable.
+HOMOGRAPHY_CALIBRATION_DIR = PROJECT_ROOT / "homography_calibration"
+
 
 def ensure_dir(path: Path) -> Path:
     """mkdir -p and return the path, for use at the point a directory is written to."""
