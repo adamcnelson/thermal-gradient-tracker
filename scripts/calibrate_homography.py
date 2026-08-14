@@ -9,15 +9,17 @@ panel (left), then click its matching physical point in the thermal panel
 alternation so pairing can't get scrambled. Click at least 4 pairs (plate
 corners plus edge midpoints recommended for a better-conditioned fit).
 
-*** ORIENTATION WARNING (confirmed 2026-08-13, lane F): the RGB and
-thermal cameras do NOT share the same orientation — the apparatus's front
-edge sits at the BOTTOM of the RGB crop but the TOP of the thermal crop (a
-~180-degree relative rotation, not just a vertical flip). A same-screen-
-position clicking habit (e.g. "top-left of each panel") silently pairs the
-WRONG physical corners — this happened for real on the first calibration
-attempt and produced a low-RMSE but physically wrong homography. For each
-pair, identify the actual physical feature (corner/edge) in BOTH images
-before clicking — don't rely on relative on-screen position. ***
+*** ORIENTATION WARNING (confirmed 2026-08-14, lane F, both Test_3 and
+Test_4 sessions): the RGB and thermal cameras do NOT share the same
+orientation — it's a VERTICAL FLIP ONLY (the apparatus's front edge sits
+at the BOTTOM of the RGB crop but the TOP of the thermal crop; left/right
+is NOT flipped). Two real mistakes happened getting this right the first
+time: assuming same-screen-position pairing (produced a low-RMSE but
+physically wrong homography), then overcorrecting to a full 180-degree
+rotation (also wrong — that flips left/right too, which doesn't happen
+here). For each pair, identify the actual physical feature (corner/edge)
+in BOTH images before clicking — don't rely on relative on-screen
+position, and don't assume a full rotation either. ***
 
 Both panels show a temporal MEDIAN frame (not a single frame), so a mouse
 sitting on a corner at some random instant doesn't block it.
@@ -129,8 +131,8 @@ def pick_point_pairs_interactive(rgb_img: np.ndarray, thermal_img: np.ndarray):
     fig.suptitle(
         "Alternate clicks: RGB point -> matching thermal point -> repeat. "
         "ENTER when done (>=4 pairs)  |  Z to undo last click\n"
-        "WARNING: RGB and thermal are NOT the same orientation (confirmed ~180-deg rotated, "
-        "lane F, 2026-08-13) — match physical features, not screen position.",
+        "WARNING: RGB and thermal are a VERTICAL FLIP of each other, not the same orientation "
+        "and NOT a full rotation (confirmed lane F, 2026-08-14) — match physical features, not screen position.",
         fontsize=10,
         color="red",
     )
@@ -213,10 +215,11 @@ def main():
     print("Click a point in RGB, then its matching point in Thermal, repeat for >=4 pairs.")
     print("Press ENTER when done, Z to undo the last click.")
     print()
-    print("*** WARNING: RGB and thermal are confirmed NOT the same orientation (~180-deg")
-    print("    rotated for lane F, 2026-08-13) — identify the actual physical feature in")
-    print("    BOTH images before clicking. Do not assume matching screen position means")
-    print("    matching physical point. ***")
+    print("*** WARNING: RGB and thermal are a VERTICAL FLIP of each other (confirmed lane F,")
+    print("    2026-08-14) — NOT the same orientation, and NOT a full rotation either (left/right")
+    print("    is not flipped). Identify the actual physical feature in BOTH images before")
+    print("    clicking. Do not assume matching screen position means matching physical point.")
+    print("    ***")
 
     rgb_points, thermal_points = pick_point_pairs_interactive(rgb_img, thermal_img)
 
