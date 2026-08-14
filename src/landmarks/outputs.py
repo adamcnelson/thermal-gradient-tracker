@@ -193,7 +193,7 @@ def build_session_qc_report(
     homography_fit: Optional[HomographyFit],
     homography_max_rmse_px: float,
     sync_result: Optional[WindowedSyncResult],
-    sync_thermal_frame_sec: float,
+    sync_max_residual_sec: Optional[float] = None,
     nudge_events: Sequence[NudgeEvent] = (),
     landmark_yield_by_zone: Optional[dict] = None,
     fallback_invocation_count: int = 0,
@@ -211,7 +211,10 @@ def build_session_qc_report(
         sync_r_squared=sync_result.r_squared if sync_result else None,
         sync_residual_max_sec=sync_result.residual_max_sec if sync_result else None,
         sync_passes=(
-            sync_passes_acceptance(sync_result, thermal_frame_sec=sync_thermal_frame_sec)
+            sync_passes_acceptance(
+                sync_result,
+                **({"max_residual_sec": sync_max_residual_sec} if sync_max_residual_sec is not None else {}),
+            )
             if sync_result
             else None
         ),

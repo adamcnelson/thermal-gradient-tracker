@@ -157,7 +157,7 @@ class TestBuildSessionQCReport:
         report = build_session_qc_report(
             session="s", track="F",
             homography_fit=hfit, homography_max_rmse_px=1.0,
-            sync_result=sync, sync_thermal_frame_sec=0.125,
+            sync_result=sync, sync_max_residual_sec=0.125,
             nudge_events=nudges,
             landmark_yield_by_zone={"cool": 0.9, "mid": 0.8, "hot": 0.3},
             fallback_invocation_count=3,
@@ -175,7 +175,7 @@ class TestBuildSessionQCReport:
         report = build_session_qc_report(
             session="s", track="F",
             homography_fit=None, homography_max_rmse_px=1.0,
-            sync_result=None, sync_thermal_frame_sec=0.125,
+            sync_result=None, sync_max_residual_sec=0.125,
         )
         assert report.homography_rmse_px is None
         assert report.homography_passes is None
