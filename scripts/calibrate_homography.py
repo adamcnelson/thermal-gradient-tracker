@@ -9,17 +9,31 @@ panel (left), then click its matching physical point in the thermal panel
 alternation so pairing can't get scrambled. Click at least 4 pairs (plate
 corners plus edge midpoints recommended for a better-conditioned fit).
 
-*** ORIENTATION WARNING (confirmed 2026-08-14, lane F, both Test_3 and
-Test_4 sessions): the RGB and thermal cameras do NOT share the same
-orientation — it's a VERTICAL FLIP ONLY (the apparatus's front edge sits
-at the BOTTOM of the RGB crop but the TOP of the thermal crop; left/right
-is NOT flipped). Two real mistakes happened getting this right the first
-time: assuming same-screen-position pairing (produced a low-RMSE but
-physically wrong homography), then overcorrecting to a full 180-degree
-rotation (also wrong — that flips left/right too, which doesn't happen
-here). For each pair, identify the actual physical feature (corner/edge)
-in BOTH images before clicking — don't rely on relative on-screen
-position, and don't assume a full rotation either. ***
+*** ORIENTATION WARNING (updated 2026-08-25 — do not assume this is fixed
+across sessions): the RGB and thermal cameras do NOT share the same
+orientation, but exactly HOW they differ is per-session, not a rig
+constant. Test_3 (confirmed 2026-08-14) is a VERTICAL FLIP ONLY (the
+apparatus's front edge sits at the BOTTOM of the RGB crop but the TOP of
+the thermal crop; left/right is NOT flipped). Test_4 (confirmed
+2026-08-25 via a direct photographic comparison, see
+thermalFeatures/Track_Alignment_Test4.pptx) is a FULL 180-DEGREE
+ROTATION instead — both vertical AND horizontal flip — most likely
+because the thermal camera was physically repositioned between the two
+recording days while the RGB webcam mounting stayed fixed. Two
+independent, careful calibration attempts for Test_4 both reproduced the
+same WRONG (vertical-only) mapping, because a human matching "the same
+physical corner" under the wrong orientation assumption does so
+consistently wrong, and the resulting fit's own reprojection RMSE looks
+fine regardless (it only measures self-consistency with whatever points
+it was given, not agreement with physical reality) — so RMSE cannot
+catch this class of error. For each pair, identify the actual physical
+feature (corner/edge) in BOTH images before clicking — don't rely on
+relative on-screen position, and don't assume either a vertical-only flip
+or a full rotation without checking. Then ALWAYS run
+scripts/validate_homography_orientation.py against real, independently-
+tracked motion before trusting the result — see that script's docstring
+and project_brief_v7.md §6 Stage 4 for why this is now a required gate,
+not an optional sanity check. ***
 
 Both panels show a temporal MEDIAN frame (not a single frame), so a mouse
 sitting on a corner at some random instant doesn't block it.
@@ -50,7 +64,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.seq_io import SeqReader, adu_to_display
 from src.mouse_segmentation import BackgroundModel
-from src.landmarks.webcam_preprocessing import LANE_TOP, detect_track_split_row, split_track_crops
+from src.landmarks.webcam_preprocessing import LANE_TOP, detect_track_split_row
 from src.landmarks.rgb_landmarks import RgbBackgroundModel
 from src.landmarks.registration import fit_homography
 
@@ -61,7 +75,7 @@ def thermal_background_frame(seq_path: str, n_frames: int = 100, seed: int = 123
     return adu_to_display(bg.background.astype(np.uint16))
 
 
-def rgb_background_frame(video_path: str, lane: str, n_samples: int = 30) -> np.ndarray:
+def rgb_background_frame(video_path: str, lane: str, n_samples: int = 30, pad_px: int = 100) -> np.ndarray:
     """
     Temporal median RGB background, sampled evenly across the FULL video
     duration via direct seeking — matching thermal_background_frame's
@@ -84,6 +98,22 @@ def rgb_background_frame(video_path: str, lane: str, n_samples: int = 30) -> np.
     540), so the naive split let one track bleed into the other's crop.
     Detected once from the first frame and reused for every sample, so all
     sampled frames are cropped consistently.
+
+    pad_px: real bug found 2026-08-27 (Adam, calibrating Test_3's Back
+    lane): a single flat split_row is one row shared across the whole
+    frame width, but the real track boundary isn't necessarily a clean
+    horizontal line (camera perspective/mounting angle) -- a tight crop
+    right at split_row can clip part of the target lane's own track (seen
+    as the bottom-right corner missing from the Back lane's background
+    image). Unlike split_track_crops()'s use in the real measurement
+    pipeline (Stage 5+, where keeping the OTHER track's mouse out of this
+    lane's crop matters for segmentation correctness), this function only
+    ever feeds a human clicking known physical corners for calibration --
+    a bit of visible bleed from the other lane is harmless here, an
+    accidentally-clipped real corner is not. So this crop is deliberately
+    generous toward the requested lane instead of tight at split_row,
+    trading (acceptable) cross-lane bleed for (unacceptable) risk of
+    clipping the target lane's own track.
     """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -108,8 +138,12 @@ def rgb_background_frame(video_path: str, lane: str, n_samples: int = 30) -> np.
             if not ok:
                 continue
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            top, bottom = split_track_crops(gray, split_row=split_row)
-            frames.append(top if lane == LANE_TOP else bottom)
+            height = gray.shape[0]
+            if lane == LANE_TOP:
+                crop = gray[: min(height, split_row + pad_px)]
+            else:
+                crop = gray[max(0, split_row - pad_px):]
+            frames.append(crop)
     finally:
         cap.release()
 
@@ -131,8 +165,11 @@ def pick_point_pairs_interactive(rgb_img: np.ndarray, thermal_img: np.ndarray):
     fig.suptitle(
         "Alternate clicks: RGB point -> matching thermal point -> repeat. "
         "ENTER when done (>=4 pairs)  |  Z to undo last click\n"
-        "WARNING: RGB and thermal are a VERTICAL FLIP of each other, not the same orientation "
-        "and NOT a full rotation (confirmed lane F, 2026-08-14) — match physical features, not screen position.",
+        "WARNING: RGB/thermal orientation is NOT a fixed rig constant -- it has been confirmed "
+        "to differ per session (Test_3: vertical flip only; Test_4: full 180-degree rotation). "
+        "Do NOT assume either pattern here -- identify the actual physical corner/edge in BOTH "
+        "panels before clicking, and run validate_homography_orientation.py against real tracked "
+        "motion afterward regardless of how confident this felt (RMSE alone cannot catch this).",
         fontsize=10,
         color="red",
     )
@@ -215,10 +252,17 @@ def main():
     print("Click a point in RGB, then its matching point in Thermal, repeat for >=4 pairs.")
     print("Press ENTER when done, Z to undo the last click.")
     print()
-    print("*** WARNING: RGB and thermal are a VERTICAL FLIP of each other (confirmed lane F,")
-    print("    2026-08-14) — NOT the same orientation, and NOT a full rotation either (left/right")
-    print("    is not flipped). Identify the actual physical feature in BOTH images before")
-    print("    clicking. Do not assume matching screen position means matching physical point.")
+    print("*** WARNING: RGB and thermal are AT LEAST a vertical flip of each other (confirmed lane F,")
+    print("    2026-08-14, Test_3) — but this is NOT guaranteed to be the same for every session.")
+    print("    Test_4 (2026-08-25) turned out to be a FULL 180-degree rotation (vertical AND")
+    print("    horizontal flip), most likely because the thermal camera was physically repositioned")
+    print("    between recording days. Two careful, independent calibration attempts for Test_4 both")
+    print("    got this wrong by assuming vertical-only, because a human matching 'the same physical")
+    print("    corner' under the wrong orientation assumption does so consistently wrong -- low RMSE")
+    print("    will NOT catch this. Identify the actual physical feature in BOTH images before")
+    print("    clicking, do not assume matching screen position means matching physical point, and")
+    print("    ALWAYS run scripts/validate_homography_orientation.py against real independent")
+    print("    tracking data afterward -- do not trust this calibration on RMSE alone.")
     print("    ***")
 
     rgb_points, thermal_points = pick_point_pairs_interactive(rgb_img, thermal_img)

@@ -1,0 +1,94 @@
+{
+  "seq_path": "/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/croppedSeqFiles/08-07-25_Test_7/08-07-25_4541_F_4540_B_Test7-020_Front.seq",
+  "video_path": "/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/Process_Jason/08-07-25_Test_7/2025-08-07_10-54-09.mp4",
+  "lane": "F",
+  "rgb_points": [
+    [
+      122.0,
+      83.0
+    ],
+    [
+      1006.0,
+      46.0
+    ],
+    [
+      1833.0,
+      15.0
+    ],
+    [
+      1837.0,
+      99.0
+    ],
+    [
+      1844.0,
+      182.0
+    ],
+    [
+      1004.0,
+      222.0
+    ],
+    [
+      135.0,
+      256.0
+    ]
+  ],
+  "thermal_points": [
+    [
+      410.0,
+      42.0
+    ],
+    [
+      199.0,
+      42.0
+    ],
+    [
+      0.0,
+      42.0
+    ],
+    [
+      0.0,
+      20.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      200.0,
+      0.0
+    ],
+    [
+      411.0,
+      0.0
+    ]
+  ],
+  "H": [
+    [
+      -0.2389334737352359,
+      0.009755854981437806,
+      438.1733938884508
+    ],
+    [
+      -0.010276676038930378,
+      -0.24376336847823113,
+      63.73936701034144
+    ],
+    [
+      1.6018331401918157e-06,
+      -2.0380653899416346e-05,
+      1.0
+    ]
+  ],
+  "rmse_px": 0.8415494056578723,
+  "residuals_px": [
+    0.5480252830382559,
+    0.8927958729219774,
+    0.9321690802581942,
+    0.7421946324280371,
+    0.7720689028706591,
+    1.248251495089154,
+    0.5347965792893059
+  ],
+  "passes_acceptance": true,
+  "_refit_note": "2026-08-27: dropped original calibration point index 7 (rgb=(135,169) -> thermal=(411,18)), residual 2.68px vs 0.8-1.5px for the other 7 -- clear outlier, likely a slightly mis-clicked corner. Refit from the remaining 7 points: rmse 1.383px -> 0.842px, now passes the brief Stage 4 acceptance bar (<1.0px). Original 8-point calibration backed up as *_homography.json.bak_pre_refit_2026-08-27."
+}

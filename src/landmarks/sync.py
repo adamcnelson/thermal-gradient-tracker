@@ -42,9 +42,46 @@ def thermal_motion_energy(
     time_col: str = "elapsed_time_sec",
     velocity_col: str = "velocity_smooth_px_s",
 ) -> pd.Series:
-    """Time-indexed thermal motion-energy trace from the existing tracker's centroid speed."""
+    """
+    Time-indexed thermal motion-energy trace from the existing tracker's
+    centroid speed. Requires a precomputed velocity_col — NOT present in
+    the real tracking CSVs this project actually produces (confirmed
+    2026-08-13: `trackingOutputs/*_tracking_every10frames.csv` has no
+    velocity_smooth_px_s column). Use
+    thermal_motion_energy_from_centroids() below against real data; this
+    function is kept for a tracker version that does emit a smoothed
+    velocity column directly.
+    """
     df = tracking_df[[time_col, velocity_col]].dropna()
     return pd.Series(df[velocity_col].to_numpy(), index=df[time_col].to_numpy()).sort_index()
+
+
+def thermal_motion_energy_from_centroids(
+    tracking_df: pd.DataFrame,
+    time_col: str = "elapsed_time_sec",
+    x_col: str = "mouse_centroid_x",
+    y_col: str = "mouse_centroid_y",
+) -> pd.Series:
+    """
+    Thermal motion-energy trace derived directly from the existing
+    tracker's per-frame centroid columns (real fallback for
+    thermal_motion_energy(), which needs a velocity column this project's
+    tracker doesn't emit). Mirrors
+    rgb_motion_energy_from_tracked_centroids()'s centroid-speed principle
+    on the thermal side: speed is computed only between consecutive rows
+    that both have a valid centroid, so a tracking gap (mouse_roi_valid
+    False, pre/post-entry rows) doesn't manufacture a spurious sample.
+    """
+    df = tracking_df[[time_col, x_col, y_col]].dropna().sort_values(time_col)
+    if len(df) < 2:
+        raise ValueError("Need at least 2 valid-centroid rows to compute motion energy")
+    times = df[time_col].to_numpy()
+    centroids = df[[x_col, y_col]].to_numpy()
+    dt = np.diff(times)
+    dpos = np.diff(centroids, axis=0)
+    speed = np.linalg.norm(dpos, axis=1) / dt
+    speeds_full = np.concatenate([[0.0], speed])
+    return pd.Series(speeds_full, index=times)
 
 
 def rgb_motion_energy_from_frames(frames: Sequence[np.ndarray], fps: float) -> pd.Series:
@@ -168,6 +205,93 @@ class WindowedSyncResult:
     drift_slope: float  # extra seconds of lag per second of session time
     r_squared: float
     residual_max_sec: float
+    low_confidence: bool = False
+    confidence_note: str = ""
+
+    @classmethod
+    def manual_low_confidence(
+        cls, offset_sec: float, drift_slope: float = 0.0, note: str = ""
+    ) -> "WindowedSyncResult":
+        """
+        Construct a result for an offset adopted as a working value rather
+        than recovered from a converged fit — e.g. a session (like
+        07-30-25_Test_4, 2026-08-18) where every fitting method agreed on
+        a rough neighborhood but none produced enough real anchors to
+        compute a real residual/R² (fit_lag_from_points() requires >=2
+        points; this session repeatedly produced 0-1 real position-anchor
+        transitions across three separate attempts — see memory
+        project-v7-sync-findings for the full investigation).
+
+        r_squared/residual_max_sec are set to NaN (not fabricated as 0 or
+        omitted) since no real fit was computed — passes_acceptance()
+        already handles NaN correctly (NaN comparisons are False, so both
+        the residual and, unless drift_slope is ~0, the R² branch
+        correctly evaluate to "not accepted" rather than silently passing).
+        window_centers_sec/window_lags_sec are left empty for the same
+        reason: there is no set of independent (time, lag) observations
+        behind this value, just a single adopted point estimate.
+
+        low_confidence=True is the actual signal this method exists to
+        set — it is threaded through Stage 7's SessionQCReport and
+        BoutOutputRow (src/landmarks/outputs.py) so every downstream
+        measurement built from this sync result carries the flag, without
+        blocking those measurements from being computed (brief §6 Stage 3
+        literally offers "flag session, drop to thermal-only" as the
+        fallback on failure — this is the "flag" half of that without
+        forcing the more drastic "drop to thermal-only" half, a deliberate
+        choice: see the Stage 3 status writeup, 2026-08-24).
+        """
+        return cls(
+            window_centers_sec=np.array([]),
+            window_lags_sec=np.array([]),
+            offset_sec=float(offset_sec),
+            drift_slope=float(drift_slope),
+            r_squared=float("nan"),
+            residual_max_sec=float("nan"),
+            low_confidence=True,
+            confidence_note=note,
+        )
+
+
+def fit_lag_from_points(times_sec: Sequence[float], lags_sec: Sequence[float]) -> WindowedSyncResult:
+    """
+    Regress a set of independently-measured (time, lag) observations onto
+    an affine time map (offset + drift) via OLS — the fitting step shared
+    by fit_windowed_lag() (5 arbitrary fixed-fraction windows) and
+    fit_bout_edge_lag() (one observation per real stationary-bout onset,
+    2026-08-14 — see that function's docstring for why bout edges are a
+    better anchor than blind windows). Factored out so both anchoring
+    strategies produce the same WindowedSyncResult shape and go through
+    passes_acceptance() identically.
+    """
+    times_arr = np.asarray(times_sec, dtype=float)
+    lags_arr = np.asarray(lags_sec, dtype=float)
+    if len(times_arr) < 2:
+        raise ValueError(f"Need >=2 (time, lag) points to fit a drift model, got {len(times_arr)}")
+
+    slope, intercept, r, _p, _se = stats.linregress(times_arr, lags_arr)
+    residuals = lags_arr - (slope * times_arr + intercept)
+
+    return WindowedSyncResult(
+        window_centers_sec=times_arr,
+        window_lags_sec=lags_arr,
+        offset_sec=float(intercept),
+        drift_slope=float(slope),
+        r_squared=float(r**2) if len(times_arr) > 2 else float("nan"),
+        residual_max_sec=float(np.max(np.abs(residuals))),
+    )
+
+
+def theil_sen_fit(times_sec: Sequence[float], lags_sec: Sequence[float]) -> Tuple[float, float]:
+    """
+    Robust (outlier-resistant) alternative to fit_lag_from_points()'s OLS
+    fit, used throughout this project as an independent cross-check that
+    an OLS drift/offset estimate isn't being driven by one bad window/edge
+    (see passes_acceptance() docstring for the precedent). Returns
+    (slope, intercept) — same affine convention as fit_lag_from_points.
+    """
+    slope, intercept, _lo, _hi = stats.theilslopes(np.asarray(lags_sec, dtype=float), np.asarray(times_sec, dtype=float))
+    return float(slope), float(intercept)
 
 
 def fit_windowed_lag(
@@ -181,6 +305,14 @@ def fit_windowed_lag(
     Fit lag independently in n_windows windows spread evenly across the
     session, then regress lag on window-center time to recover an affine
     time map (offset + drift), per brief §6 Stage 3.
+
+    NOTE (2026-08-14): a real batch run across every stationary bout in
+    two sessions showed this blind-window anchoring is not reliable
+    enough for production use — several windows land mostly inside long
+    stationary stretches with little real motion to correlate on, and the
+    resulting lag estimate is then dominated by noise, not signal. Prefer
+    fit_bout_edge_lag() below, which anchors on real motion transients
+    (bout onsets) instead. Kept for comparison/regression-testing.
     """
     t0 = max(thermal.index.min(), rgb.index.min())
     t1 = min(thermal.index.max(), rgb.index.max())
@@ -214,19 +346,86 @@ def fit_windowed_lag(
             "— not enough to fit a drift model"
         )
 
-    centers_arr = np.array(used_centers)
-    lags_arr = np.array(lags)
-    slope, intercept, r, _p, _se = stats.linregress(centers_arr, lags_arr)
-    residuals = lags_arr - (slope * centers_arr + intercept)
+    return fit_lag_from_points(used_centers, lags)
 
-    return WindowedSyncResult(
-        window_centers_sec=centers_arr,
-        window_lags_sec=lags_arr,
-        offset_sec=float(intercept),
-        drift_slope=float(slope),
-        r_squared=float(r**2) if len(centers_arr) > 2 else float("nan"),
-        residual_max_sec=float(np.max(np.abs(residuals))),
-    )
+
+def fit_bout_edge_lag(
+    thermal_motion: pd.Series,
+    rgb_window_fn,
+    bout_start_times_sec: Sequence[float],
+    coarse_offset_sec: float,
+    edge_window_sec: float = 15.0,
+) -> WindowedSyncResult:
+    """
+    Anchor the affine offset/drift fit on real stationary-bout onsets
+    instead of blind fixed-fraction windows (see fit_windowed_lag()'s
+    note). Every bout start is, by construction (src/bouts.py's
+    classify_stationary), a genuine motion-to-stillness transient in the
+    thermal stream — a strong, well-localized correlation feature, unlike
+    an arbitrary window that might land entirely inside a long stationary
+    stretch with near-zero motion-energy variance on one or both sides.
+
+    thermal_motion : full-session thermal motion-energy trace (e.g. from
+        thermal_motion_energy_from_centroids()), indexed by THERMAL clock.
+    rgb_window_fn : callable(bout_start_time_sec) -> Optional[pd.Series],
+        returning the RGB motion-energy trace for a short window bracketing
+        that thermal time (already decoded/tracked by the caller — this
+        function does no video I/O itself), indexed by the RGB video's OWN
+        native clock (i.e. seconds since that video's frame 0 — do NOT
+        pre-shift it). Return None if the window couldn't be produced
+        (e.g. falls outside the RGB recording).
+    bout_start_times_sec : the bout_start_sec values to anchor on.
+    coarse_offset_sec : rough single-number offset estimate (thermal_time +
+        coarse_offset_sec =~ rgb_native_time) used ONLY to (a) tell the
+        caller's rgb_window_fn roughly where to decode from and (b)
+        recenter the RGB window onto thermal-comparable time before
+        correlating. Getting this right matters: a real end-to-end bug
+        (2026-08-14) fed cross_correlate_lag() a thermal-clock window and
+        an RGB window still in raw native-video seconds without ever
+        reconciling the two clocks — for Test_4 (true offset ~+3s) the
+        two ranges happened to overlap by coincidence and produced a
+        result anyway, but for Test_3 (true offset ~-96s) they never
+        overlapped at all and every single edge was silently dropped
+        (caught by the ValueError->skip below). Recentering by
+        coarse_offset_sec here, once, in the one place that does this
+        math, avoids that trap for any future offset magnitude.
+
+    Windows a locally-matching slice of thermal_motion around each edge
+    (+/- edge_window_sec) to correlate against the caller-supplied RGB
+    window. Edges where either side fails to produce a valid
+    cross-correlation are skipped (not zero-filled), same policy as
+    fit_windowed_lag().
+    """
+    lags: List[float] = []
+    used_times: List[float] = []
+    for t_edge in bout_start_times_sec:
+        rgb_win_native = rgb_window_fn(t_edge)
+        if rgb_win_native is None or len(rgb_win_native) < 2:
+            continue
+        # Recenter the RGB window onto thermal-comparable time so its index
+        # range actually overlaps thermal_motion's, regardless of how large
+        # coarse_offset_sec is (see docstring above).
+        rgb_win = pd.Series(
+            rgb_win_native.to_numpy(), index=rgb_win_native.index.to_numpy() - coarse_offset_sec
+        )
+        th_win = thermal_motion[
+            (thermal_motion.index >= t_edge - edge_window_sec)
+            & (thermal_motion.index <= t_edge + edge_window_sec)
+        ]
+        try:
+            fine_lag = cross_correlate_lag(th_win, rgb_win, dt=0.05)
+        except ValueError:
+            continue
+        lags.append(coarse_offset_sec + fine_lag)
+        used_times.append(float(t_edge))
+
+    if len(used_times) < 2:
+        raise ValueError(
+            f"Only {len(used_times)}/{len(bout_start_times_sec)} bout edges produced a valid lag "
+            "— not enough to fit a drift model"
+        )
+
+    return fit_lag_from_points(used_times, lags)
 
 
 def passes_acceptance(

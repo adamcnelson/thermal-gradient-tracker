@@ -287,3 +287,23 @@ class TestAverageValid:
 
     def test_all_none_returns_none(self):
         assert average_valid([None, None]) is None
+
+    def test_nan_is_treated_as_missing_like_none(self):
+        """
+        Regression test (2026-08-24): real batch code commonly round-trips
+        per-sample values through a pandas.DataFrame before calling this
+        function, and pandas silently converts None to np.nan in a numeric
+        column. A NaN mixed in with real values must not poison the mean --
+        confirmed on real Test_3 data that it silently zeroed out a
+        genuine, successfully-measured tail_delta_t_c value.
+        """
+        assert average_valid([1.0, float("nan"), 3.0]) == pytest.approx(2.0)
+
+    def test_all_nan_returns_none(self):
+        assert average_valid([float("nan"), float("nan")]) is None
+
+    def test_mixed_none_and_nan_both_filtered(self):
+        assert average_valid([1.0, None, float("nan"), 3.0]) == pytest.approx(2.0)
+
+    def test_nan_counts_as_missing_for_min_count(self):
+        assert average_valid([1.0, float("nan")], min_count=2) is None

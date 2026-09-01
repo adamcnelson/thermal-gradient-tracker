@@ -1,0 +1,14 @@
+{
+  "seq_path": "/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/croppedSeqFiles/07-30-25_Test_4/07-30-25_4540_F_4541_B_Test4-008_Front.seq",
+  "video_path": "/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/Process_Jason/07-30-25_Test_4/2025-07-30_10-44-05.mp4",
+  "lane": "F",
+  "rgb_frame_time_sec": 458.0,
+  "thermal_frame_time_sec": 458.0,
+  "posture": "prone",
+  "tail_base_point": null,
+  "mask_polygon": [],
+  "tail_centerline": [],
+  "interscapular_point": null,
+  "head_point": null,
+  "warm_spot_roi_polygon_thermal": []
+}

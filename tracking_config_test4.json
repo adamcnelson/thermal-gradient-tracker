@@ -1,6 +1,6 @@
 {
   "sampling_interval_frames": 10,
-  "mouse_roi_radius_px": 8,
+  "mouse_roi_radius_px": 6,
   "floor_roi_radius_px": 8,
   "max_floor_roi_shift_px": 80,
   "floor_roi_search_step_px": 2,
@@ -15,7 +15,7 @@
   "tracking_start_confidence_threshold": 0.8,
   "max_entry_disturbance_score": 0.2,
   "manual_tracking_start_frame": null,
-  "camera_fps": 8.0,
+  "camera_fps": 10.0,
   "enable_local_fallback": true,
   "local_fallback_search_radius_px": 25,
   "local_fallback_threshold_percentile": 80.0,

@@ -12,7 +12,12 @@ third of the body" from an already-warped, potentially-distorted mask
 would not be.
 
 Posture classification (curled/rearing, mentioned in the brief's gating
-list) is not implemented anywhere yet — gate_measurement() takes it as a
+list): "curled" is now classified in RGB space by
+rgb_landmarks.extract_mouse_detection() (2026-08-18) — a curled mouse has
+no open nose-to-tail curve to extract warm-spot/tail-ΔT landmarks from, so
+callers should treat MouseDetectionResult.posture == "curled" as
+posture_ok=False when calling gate_measurement() below. "Rearing" is still
+not classified anywhere. gate_measurement() itself still just takes a
 caller-supplied bool and defaults to "not gated on this" if omitted.
 """
 
@@ -320,12 +325,27 @@ def gate_measurement(
 
 def average_valid(values: Sequence[Optional[float]], min_count: int = 1) -> Optional[float]:
     """
-    Mean of the non-None values in `values`, or None if fewer than
+    Mean of the non-missing values in `values`, or None if fewer than
     min_count are present. Brief: averaging reduces noise, not the
     partial-volume bias that the curve-sampling approach above exists to
     handle — this function is deliberately just a mean, nothing fancier.
+
+    "Missing" means either None OR float NaN (2026-08-24 bug fix): a real
+    batch pipeline commonly collects per-sample values into a
+    pandas.DataFrame before calling this function (e.g. to filter/group by
+    bout), and pandas silently converts None to np.nan in a numeric
+    column. The original None-only filter let NaN survive into
+    np.mean(valid), which poisons the whole average to NaN even when real
+    values were mixed in with the missing ones — silently discarding
+    genuine measurements. Confirmed on real data: a Test_3 bout with one
+    successful "extended"-posture tail measurement and one curled (no
+    tail landmarks -> None -> NaN after the DataFrame round-trip) sample
+    had its real tail_delta_t_c silently zeroed to NaN by this bug, and
+    Test_4 — which has far more mixed-posture bouts — was almost
+    certainly losing real warm-spot/tail-ΔT averages the same way
+    throughout this project's whole Stage 7 investigation.
     """
-    valid = [v for v in values if v is not None]
+    valid = [v for v in values if v is not None and not (isinstance(v, float) and np.isnan(v))]
     if len(valid) < min_count:
         return None
     return float(np.mean(valid))

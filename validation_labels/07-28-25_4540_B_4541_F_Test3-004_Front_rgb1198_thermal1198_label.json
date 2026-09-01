@@ -1,0 +1,154 @@
+{
+  "seq_path": "/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/croppedSeqFiles/07-28-25_Test_3/07-28-25_4540_B_4541_F_Test3-004_Front.seq",
+  "video_path": "/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/Process_Jason/07-28-25_Test_3/2025-07-28_10-57-21.mp4",
+  "lane": "F",
+  "rgb_frame_time_sec": 1198.0,
+  "thermal_frame_time_sec": 1198.0,
+  "posture": "extended",
+  "tail_base_point": [
+    1042,
+    66
+  ],
+  "mask_polygon": [
+    [
+      938,
+      84
+    ],
+    [
+      941,
+      77
+    ],
+    [
+      951,
+      68
+    ],
+    [
+      963,
+      64
+    ],
+    [
+      972,
+      60
+    ],
+    [
+      984,
+      59
+    ],
+    [
+      995,
+      57
+    ],
+    [
+      1010,
+      57
+    ],
+    [
+      1019,
+      59
+    ],
+    [
+      1030,
+      65
+    ],
+    [
+      1026,
+      84
+    ],
+    [
+      1015,
+      96
+    ],
+    [
+      1005,
+      102
+    ],
+    [
+      988,
+      104
+    ],
+    [
+      979,
+      104
+    ],
+    [
+      965,
+      101
+    ],
+    [
+      950,
+      96
+    ]
+  ],
+  "tail_centerline": [
+    [
+      1042,
+      66
+    ],
+    [
+      1054,
+      66
+    ],
+    [
+      1071,
+      74
+    ],
+    [
+      1085,
+      83
+    ],
+    [
+      1096,
+      100
+    ],
+    [
+      1099,
+      123
+    ],
+    [
+      1096,
+      145
+    ],
+    [
+      1087,
+      164
+    ],
+    [
+      1080,
+      181
+    ]
+  ],
+  "interscapular_point": [
+    966,
+    83
+  ],
+  "head_point": [
+    946,
+    87
+  ],
+  "warm_spot_roi_polygon_thermal": [
+    [
+      14,
+      21
+    ],
+    [
+      17,
+      21
+    ],
+    [
+      19,
+      19
+    ],
+    [
+      18,
+      18
+    ],
+    [
+      16,
+      17
+    ],
+    [
+      14,
+      19
+    ]
+  ]
+}

@@ -16,6 +16,7 @@ from src.landmarks.registration import (
     fit_homography,
     homography_deviates_from_canonical,
     reprojection_error,
+    validate_homography_orientation,
 )
 
 TRUE_H = np.array(
@@ -84,6 +85,68 @@ class TestApplyHomographyAndReprojectionError:
         rmse, residuals = reprojection_error(TRUE_H, rgb_pts, thermal_pts)
         assert rmse < 1e-6
         assert np.all(residuals < 1e-6)
+
+
+CALIBRATION_H = np.array(
+    [
+        [0.25, 0.0, 10.0],
+        [0.0, -0.25, 60.0],
+        [0.0, 0.0, 1.0],
+    ]
+)
+CROP_WIDTH = 400.0
+# REALITY_H(q) == CALIBRATION_H(mirror(q)) by construction (mirror-then-calibrate) --
+# represents a session whose TRUE relationship needs the extra horizontal flip that
+# CALIBRATION_H (what got clicked, as-is) does not encode.
+_MIRROR_MATRIX = np.array([[-1.0, 0.0, CROP_WIDTH], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+REALITY_H = CALIBRATION_H @ _MIRROR_MATRIX
+
+
+class TestValidateHomographyOrientation:
+    def test_recommends_as_clicked_when_no_mismatch(self):
+        rng = np.random.default_rng(10)
+        rgb_pts = rng.uniform(20, 380, size=(8, 2))
+        thermal_pts = _project(rgb_pts, CALIBRATION_H)  # clicked correctly, no error
+        matched_rgb = rng.uniform(20, 380, size=(30, 2))
+        matched_thermal = _project(matched_rgb, CALIBRATION_H)  # reality == as-clicked
+
+        result = validate_homography_orientation(
+            rgb_pts, thermal_pts, matched_rgb, matched_thermal, crop_width=CROP_WIDTH,
+        )
+        assert result.recommendation == "as_clicked"
+        assert not result.flagged
+        assert result.mean_err_as_clicked_px < 1.0
+        assert result.mean_err_as_clicked_px < result.mean_err_x_mirrored_px
+
+    def test_recommends_x_mirrored_when_session_needs_full_rotation(self):
+        rng = np.random.default_rng(11)
+        rgb_pts = rng.uniform(20, 380, size=(8, 2))
+        thermal_pts = _project(rgb_pts, CALIBRATION_H)  # clicked "as if" vertical-only
+        matched_rgb = rng.uniform(20, 380, size=(30, 2))
+        matched_thermal = _project(matched_rgb, REALITY_H)  # true reality needs the extra flip
+
+        result = validate_homography_orientation(
+            rgb_pts, thermal_pts, matched_rgb, matched_thermal, crop_width=CROP_WIDTH,
+        )
+        assert result.recommendation == "x_mirrored"
+        assert result.flagged
+        assert result.mean_err_x_mirrored_px < 1.0
+        assert result.mean_err_x_mirrored_px < result.mean_err_as_clicked_px
+        assert "ORIENTATION MISMATCH" in result.note
+
+    def test_too_few_validation_points_is_flagged_unverified(self):
+        rng = np.random.default_rng(12)
+        rgb_pts = rng.uniform(20, 380, size=(8, 2))
+        thermal_pts = _project(rgb_pts, CALIBRATION_H)
+        matched_rgb = rng.uniform(20, 380, size=(5, 2))
+        matched_thermal = _project(matched_rgb, CALIBRATION_H)
+
+        result = validate_homography_orientation(
+            rgb_pts, thermal_pts, matched_rgb, matched_thermal, crop_width=CROP_WIDTH, min_samples=15,
+        )
+        assert result.flagged
+        assert result.n_validation_points == 5
+        assert np.isnan(result.mean_err_as_clicked_px)
 
 
 class TestHomographyDeviatesFromCanonical:

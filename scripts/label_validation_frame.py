@@ -1,14 +1,28 @@
 """
 Interactively label one validation-set frame (project_brief_v7.md §8):
 mask outline, tail-base point, tail centerline, interscapular point, head
-point, and a human-drawn warm-spot ROI.
+point, nose-tip point, and a human-drawn warm-spot ROI.
 
-Two panels: RGB (left) for the mask/tail/interscapular/head labels,
+Two panels: RGB (left) for the mask/tail/interscapular/head/nose labels,
 thermal (right) for the warm-spot ROI (a thermal judgment, not an RGB one).
 Switch label mode with a key, click to add points for that mode, ENTER to
 finish and save. Frames are specified by an already-selected row from
 select_validation_frames() (session/track/frame) — this script labels one
 row at a time, run once per selected frame.
+
+nose_point vs. head_point (added 2026-08-25): these are deliberately TWO
+SEPARATE landmarks, not one. src/landmarks/rgb_landmarks.py's own
+"nose_point" (the classical-CV skeleton's anterior-most endpoint) is
+specifically the literal tip of the animal's silhouette — that's what
+nose_point here should match, for a real, well-defined bake-off
+comparison (see src/landmarks/bakeoff.py). head_point is a looser,
+brief-§1-secondary-landmark click ("head" generally, e.g. center of the
+head mass) and is NOT the same thing — a real comparison run against the
+project's first 3 labels (which only had head_point) found the
+classical algorithm's nose point consistently sitting right at the
+silhouette tip while the human head_point click landed further back
+toward the head's center, on frames where the head is a rounded, not
+sharply-pointed, shape. Label BOTH going forward; don't conflate them.
 
 Usage:
     python scripts/label_validation_frame.py \\
@@ -21,8 +35,8 @@ Usage:
 
 Modes (press the key to switch, click to add points in that mode):
     m  mask outline polygon (RGB)         t  tail centerline (RGB, base->tip)
-    i  interscapular point (RGB)          h  head point (RGB)
-    w  warm-spot ROI polygon (thermal)
+    i  interscapular point (RGB)          h  head point (RGB, general)
+    n  nose-tip point (RGB, literal tip)  w  warm-spot ROI polygon (thermal)
     z  undo last point in current mode    ENTER  finish and save
 """
 
@@ -41,9 +55,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.seq_io import SeqReader, adu_to_display
 from src.landmarks.webcam_preprocessing import detect_track_split_row, split_track_crops, LANE_TOP
 
-MODE_KEYS = {"m": "mask", "t": "tail", "i": "interscapular", "h": "head", "w": "warm_spot_roi"}
-POINT_MODES = {"interscapular", "head"}  # single point, not a polygon/path
-MODE_COLORS = {"mask": "lime", "tail": "yellow", "interscapular": "cyan", "head": "magenta", "warm_spot_roi": "red"}
+MODE_KEYS = {"m": "mask", "t": "tail", "i": "interscapular", "h": "head", "n": "nose", "w": "warm_spot_roi"}
+POINT_MODES = {"interscapular", "head", "nose"}  # single point, not a polygon/path
+MODE_COLORS = {"mask": "lime", "tail": "yellow", "interscapular": "cyan", "head": "magenta", "nose": "orange", "warm_spot_roi": "red"}
 
 
 def get_rgb_frame(video_path: str, lane: str, time_sec: float) -> np.ndarray:
@@ -86,7 +100,7 @@ def label_frame_interactive(rgb_img: np.ndarray, thermal_img: np.ndarray) -> dic
     ax_thermal.imshow(thermal_rgb, aspect="equal")
 
     state = {"mode": "mask"}
-    labels: dict = {"mask": [], "tail": [], "interscapular": None, "head": None, "warm_spot_roi": []}
+    labels: dict = {"mask": [], "tail": [], "interscapular": None, "head": None, "nose": None, "warm_spot_roi": []}
     artists: list = []
 
     def mode_axis(mode):
@@ -94,7 +108,7 @@ def label_frame_interactive(rgb_img: np.ndarray, thermal_img: np.ndarray) -> dic
 
     def title():
         return (
-            f"Mode: {state['mode'].upper()}  (m=mask t=tail i=interscapular h=head w=warm-spot-ROI)\n"
+            f"Mode: {state['mode'].upper()}  (m=mask t=tail i=interscapular h=head n=nose w=warm-spot-ROI)\n"
             "Click to add point(s) for this mode  |  Z undo  |  ENTER finish+save"
         )
 
@@ -114,7 +128,7 @@ def label_frame_interactive(rgb_img: np.ndarray, thermal_img: np.ndarray) -> dic
             artists.append(ax_rgb.scatter(xs, ys, c=MODE_COLORS["tail"], s=20, zorder=5))
             (line,) = ax_rgb.plot(xs, ys, color=MODE_COLORS["tail"], lw=1.5)
             artists.append(line)
-        for key in ("interscapular", "head"):
+        for key in ("interscapular", "head", "nose"):
             if labels[key] is not None:
                 x, y = labels[key]
                 artists.append(ax_rgb.scatter([x], [y], c=MODE_COLORS[key], s=60, marker="x", zorder=6))
@@ -196,7 +210,7 @@ def main():
     thermal_img = get_thermal_frame(str(seq_path), args.thermal_frame_time)
 
     print()
-    print("Label window opening. Modes: m=mask t=tail i=interscapular h=head w=warm-spot-ROI")
+    print("Label window opening. Modes: m=mask t=tail i=interscapular h=head n=nose w=warm-spot-ROI")
     print("Click to add points for the active mode. Z undoes. ENTER finishes and saves.")
 
     labels = label_frame_interactive(rgb_img, thermal_img)
@@ -209,6 +223,8 @@ def main():
         print("WARNING: interscapular point not set.", file=sys.stderr)
     if labels["head"] is None:
         print("WARNING: head point not set.", file=sys.stderr)
+    if labels["nose"] is None:
+        print("WARNING: nose-tip point not set.", file=sys.stderr)
     if len(labels["warm_spot_roi"]) < 3:
         print("WARNING: warm-spot ROI has fewer than 3 points — not a valid outline.", file=sys.stderr)
 
@@ -227,6 +243,7 @@ def main():
         "tail_centerline": labels["tail"],
         "interscapular_point": labels["interscapular"],
         "head_point": labels["head"],
+        "nose_point": labels["nose"],
         "warm_spot_roi_polygon_thermal": labels["warm_spot_roi"],
     }
     out_path = out_dir / out_name

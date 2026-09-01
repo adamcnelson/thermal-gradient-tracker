@@ -9,6 +9,7 @@
     "qc_valid_only_for_dispersion": true,
     "min_bout_duration_sec": 15.0,
     "max_gap_merge_sec": 2.0,
+    "max_unknown_gap_merge_sec": 10.0,
     "frame_rate_fps": 8.0
   },
   "analysis": {

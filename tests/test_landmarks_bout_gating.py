@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.landmarks.bout_gating import iter_stationary_bouts, select_bout_frames
+from src.landmarks.bout_gating import filter_bouts_after_entry, iter_stationary_bouts, select_bout_frames
 
 
 def _tracking_df():
@@ -32,6 +32,28 @@ def _bouts_df():
             "bout_end_sec": [2.0, 5.0, 3.0],
         }
     )
+
+
+class TestFilterBoutsAfterEntry:
+    def test_drops_bouts_starting_before_entry_time(self):
+        bouts = _bouts_df()  # bout_start_sec: 0.0, 3.0, 0.0
+        filtered = filter_bouts_after_entry(bouts, entry_time_sec=2.5)
+        assert list(filtered["bout_start_sec"]) == [3.0]
+
+    def test_keeps_bout_exactly_at_entry_time(self):
+        bouts = _bouts_df()
+        filtered = filter_bouts_after_entry(bouts, entry_time_sec=3.0)
+        assert list(filtered["bout_start_sec"]) == [3.0]
+
+    def test_entry_time_before_all_bouts_keeps_everything(self):
+        bouts = _bouts_df()
+        filtered = filter_bouts_after_entry(bouts, entry_time_sec=-1.0)
+        assert len(filtered) == len(bouts)
+
+    def test_reindexes_after_filtering(self):
+        bouts = _bouts_df()
+        filtered = filter_bouts_after_entry(bouts, entry_time_sec=2.5)
+        assert list(filtered.index) == [0]
 
 
 class TestSelectBoutFrames:

@@ -52,6 +52,38 @@ def select_bout_frames(
     return df[mask]
 
 
+def filter_bouts_after_entry(
+    bouts_df: pd.DataFrame, entry_time_sec: float, start_col: str = "bout_start_sec"
+) -> pd.DataFrame:
+    """
+    Drop any bout that starts before the real mouse-entry time (see
+    entry_detection.py, 2026-08-24).
+
+    The existing (pre-v7) thermal tracker's own pre_entry->ok qc_flag
+    transition — which every bout in bouts_df is already filtered through
+    upstream, before this module ever sees it — was found, on real Test_3
+    data, to fire well before the animal is actually present: it marks
+    thermal-clock 47.5s as "tracking start," but the RGB video shows the
+    arena is empty until a hand/arm sweeps in and drops the mouse at
+    RGB-clock ~33s, and the independently well-established sync offset
+    for that session implies those two facts are inconsistent by roughly
+    80 seconds. In practice this means at least one early bout (Test_3's
+    bout 0, an otherwise-unexplained "hot zone" bout with unusually high
+    floor temp that failed to produce a measurement in every real batch
+    run of this pipeline) is very likely a spurious artifact of the
+    existing tracker's own entry heuristic, not real early-session animal
+    behavior.
+
+    entry_time_sec should come from entry_detection.find_entry_frame_index_thermal()
+    (converted to a time via the same tracking CSV's elapsed_time_sec),
+    not derived by converting an RGB-side entry time across the sync
+    offset — that would reintroduce exactly the offset uncertainty this
+    function exists to sidestep, since bouts already live on thermal
+    clock.
+    """
+    return bouts_df[bouts_df[start_col] >= entry_time_sec].reset_index(drop=True)
+
+
 def iter_stationary_bouts(
     tracking_df: pd.DataFrame,
     bouts_df: pd.DataFrame,

@@ -83,6 +83,17 @@ class BoutOutputRow:
     n_frames_averaged: int
     qc_valid: bool
     qc_reasons: List[str] = field(default_factory=list)
+    sync_low_confidence: bool = False
+    n_registration_low_confidence: int = 0
+    # Count of this bout's averaged samples flagged registration_low_confidence
+    # (see FrameOutputRow) -- set by the caller after construction (same
+    # pattern as n_samples_dorsal_measured in stage7_real_run.py), not part of
+    # build_bout_output_row()'s kwargs since it's a per-sample-list aggregate,
+    # not a single upstream measurement.
+    n_local_edge_refined: int = 0
+    # Count of this bout's averaged samples where local_edge_refine() applied a
+    # second, small correction -- see FrameOutputRow.local_edge_refined. Same
+    # post-construction-assignment pattern as n_registration_low_confidence.
 
 
 def build_bout_output_row(
@@ -103,7 +114,17 @@ def build_bout_output_row(
     qc_reasons: Sequence[str] = (),
     gradient_zone_kwargs: Optional[dict] = None,
 ) -> BoutOutputRow:
-    """Assemble one per-bout output row from already-computed per-stage results."""
+    """
+    Assemble one per-bout output row from already-computed per-stage results.
+
+    sync_low_confidence carries WindowedSyncResult.low_confidence through
+    onto every row (2026-08-24) — deliberately a separate column from
+    qc_valid/qc_reasons, not folded into the gating decision: a
+    low-confidence sync offset (e.g. Test_4's manually-adopted +11s, see
+    WindowedSyncResult.manual_low_confidence()) doesn't block a
+    measurement from being computed and reported, it just needs to stay
+    visible to anyone filtering/weighting these rows downstream.
+    """
     if sync_result is not None:
         rgb_start = thermal_time_to_rgb_time(bout_start_thermal_sec, sync_result)
         rgb_end = thermal_time_to_rgb_time(bout_end_thermal_sec, sync_result)
@@ -132,6 +153,7 @@ def build_bout_output_row(
         n_frames_averaged=n_frames_averaged,
         qc_valid=qc_valid,
         qc_reasons=list(qc_reasons),
+        sync_low_confidence=sync_result.low_confidence if sync_result is not None else False,
     )
 
 
@@ -160,6 +182,27 @@ class FrameOutputRow:
     mouse_surface_temp_mean_c: Optional[float]
     floor_temp_mean_c: Optional[float]
     qc_flag: str
+    posture: Optional[str] = None  # "extended" | "curled" | "ambiguous" | None (rgb_landmarks.classify_mouse_blob)
+    sync_low_confidence: bool = False
+    registration_low_confidence: bool = False
+    local_edge_refined: bool = False
+    # True when stage7_real_run.py's local_edge_refine() applied a small (bounded
+    # search window) translation on top of the whole-mask centroid correction, to
+    # better align the mask boundary with a real local thermal edge. Adam,
+    # 2026-08-31: found real cases where the whole-mask correction left the mask
+    # confidently but wrongly positioned near a raised/parallax-shifted body part
+    # (see [[project-v7-local-edge-refinement]]) -- this flag says the sample's
+    # position was adjusted a second time, not just corrected once.
+    # True when the RGB-derived position (before the per-sample thermal-native
+    # translation correction) disagreed with the thermal-native track by more
+    # than REGISTRATION_LOW_CONFIDENCE_PX -- see stage7_real_run.py. Adam,
+    # 2026-08-27: flag inconsistent RGB/thermal cases (e.g. the Test_7 bout07
+    # t=967s head/tail-orientation mismatch, [[project-v7-rotation-correction-attempt]])
+    # rather than trying to auto-correct them -- large real motion during the
+    # sample is the dominant cause (see [[project-v7-test7-alignment-investigation]]),
+    # but a genuine registration problem is the other real cause, and this
+    # column doesn't distinguish them -- it's a "look closer before trusting
+    # this sample" signal, not a verdict.
 
 
 def frame_rows_to_dataframe(rows: Sequence[FrameOutputRow]) -> pd.DataFrame:
@@ -180,6 +223,8 @@ class SessionQCReport:
     sync_r_squared: Optional[float]
     sync_residual_max_sec: Optional[float]
     sync_passes: Optional[bool]
+    sync_low_confidence: Optional[bool] = None
+    sync_confidence_note: str = ""
     nudge_events: List[NudgeEvent] = field(default_factory=list)
     landmark_yield_by_zone: dict = field(default_factory=dict)  # {"cool": frac, "mid": ..., "hot": ...}
     fallback_invocation_count: int = 0
@@ -218,6 +263,8 @@ def build_session_qc_report(
             if sync_result
             else None
         ),
+        sync_low_confidence=sync_result.low_confidence if sync_result else None,
+        sync_confidence_note=sync_result.confidence_note if sync_result else "",
         nudge_events=list(nudge_events),
         landmark_yield_by_zone=landmark_yield_by_zone or {},
         fallback_invocation_count=fallback_invocation_count,

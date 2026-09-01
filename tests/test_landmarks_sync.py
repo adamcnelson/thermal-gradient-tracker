@@ -20,10 +20,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.landmarks.sync import (
     WindowedSyncResult,
     cross_correlate_lag,
+    fit_bout_edge_lag,
+    fit_lag_from_points,
     fit_windowed_lag,
     passes_acceptance,
     rgb_motion_energy_from_tracked_centroids,
+    theil_sen_fit,
     thermal_motion_energy,
+    thermal_motion_energy_from_centroids,
 )
 from src.landmarks.rgb_landmarks import RgbBackgroundModel
 
@@ -49,6 +53,39 @@ class TestThermalMotionEnergy:
         )
         trace = thermal_motion_energy(df)
         assert len(trace) == 2
+
+
+class TestThermalMotionEnergyFromCentroids:
+    def test_recovers_constant_speed(self):
+        df = pd.DataFrame(
+            {
+                "elapsed_time_sec": [0.0, 1.0, 2.0, 3.0],
+                "mouse_centroid_x": [0.0, 5.0, 10.0, 15.0],
+                "mouse_centroid_y": [0.0, 0.0, 0.0, 0.0],
+            }
+        )
+        trace = thermal_motion_energy_from_centroids(df)
+        assert list(trace.index) == [0.0, 1.0, 2.0, 3.0]
+        assert trace.iloc[0] == 0.0
+        assert trace.iloc[1:].to_numpy() == pytest.approx(5.0)
+
+    def test_drops_nan_centroid_rows_without_manufacturing_spurious_speed(self):
+        df = pd.DataFrame(
+            {
+                "elapsed_time_sec": [0.0, 1.0, 2.0, 3.0],
+                "mouse_centroid_x": [0.0, np.nan, 10.0, 15.0],
+                "mouse_centroid_y": [0.0, np.nan, 0.0, 0.0],
+            }
+        )
+        trace = thermal_motion_energy_from_centroids(df)
+        # the nan row at t=1 is dropped entirely, so speed is computed over
+        # the real (t=0 -> t=2) gap, not against a fabricated value at t=1
+        assert list(trace.index) == [0.0, 2.0, 3.0]
+
+    def test_too_few_valid_rows_raises(self):
+        df = pd.DataFrame({"elapsed_time_sec": [0.0], "mouse_centroid_x": [1.0], "mouse_centroid_y": [1.0]})
+        with pytest.raises(ValueError):
+            thermal_motion_energy_from_centroids(df)
 
 
 class TestRgbMotionEnergyFromTrackedCentroids:
@@ -204,6 +241,130 @@ class TestFitWindowedLag:
         rgb = pd.Series([1.0, 2.0, 3.0], index=[500.0, 501.0, 502.0])
         with pytest.raises(ValueError):
             fit_windowed_lag(thermal, rgb)
+
+
+class TestFitLagFromPoints:
+    def test_recovers_offset_and_drift(self):
+        times = np.array([0.0, 100.0, 200.0, 300.0, 400.0])
+        offset, drift = 2.0, 0.001
+        lags = offset + drift * times
+        result = fit_lag_from_points(times, lags)
+        assert result.offset_sec == pytest.approx(offset, abs=1e-6)
+        assert result.drift_slope == pytest.approx(drift, abs=1e-6)
+        assert result.r_squared == pytest.approx(1.0, abs=1e-6)
+
+    def test_too_few_points_raises(self):
+        with pytest.raises(ValueError):
+            fit_lag_from_points([0.0], [1.0])
+
+
+class TestTheilSenFit:
+    def test_matches_ols_on_clean_line(self):
+        times = np.arange(20, dtype=float)
+        offset, drift = -1.5, 0.01
+        lags = offset + drift * times
+        slope, intercept = theil_sen_fit(times, lags)
+        assert slope == pytest.approx(drift, abs=1e-6)
+        assert intercept == pytest.approx(offset, abs=1e-6)
+
+    def test_robust_to_single_outlier(self):
+        times = np.arange(20, dtype=float)
+        offset, drift = -1.5, 0.01
+        lags = offset + drift * times
+        lags[10] = 500.0  # one bad edge estimate
+        slope, intercept = theil_sen_fit(times, lags)
+        assert slope == pytest.approx(drift, abs=1e-3)
+        assert intercept == pytest.approx(offset, abs=0.1)
+
+
+class TestFitBoutEdgeLag:
+    def _thermal_with_bursts(self, bout_starts, session_len=500.0):
+        thermal_times = np.arange(0, session_len, 1 / 8)
+        rng = np.random.default_rng(0)
+        thermal_motion = pd.Series(np.abs(rng.normal(size=len(thermal_times))), index=thermal_times)
+        for bt in bout_starts:
+            mask = np.abs(thermal_motion.index - bt) < 2.0
+            thermal_motion[mask] += 10.0
+        return thermal_motion
+
+    def test_anchors_on_bout_edges_and_recovers_offset(self):
+        offset = -5.0
+        bout_starts = [50.0, 150.0, 250.0, 350.0, 450.0]
+        thermal_motion = self._thermal_with_bursts(bout_starts)
+
+        def rgb_window_fn(t_edge):
+            # A shifted COPY of the real local thermal signal, in the RGB
+            # video's OWN native clock (not pre-aligned to thermal) -> the
+            # true event-time offset is `offset` by construction.
+            local = thermal_motion[
+                (thermal_motion.index >= t_edge - 15) & (thermal_motion.index <= t_edge + 15)
+            ]
+            return pd.Series(local.to_numpy(), index=local.index.to_numpy() + offset)
+
+        result = fit_bout_edge_lag(thermal_motion, rgb_window_fn, bout_starts, coarse_offset_sec=offset)
+        assert result.offset_sec == pytest.approx(offset, abs=0.5)
+
+    def test_large_offset_beyond_edge_window_still_recovered_when_recentered(self):
+        """
+        Regression test for a real bug (2026-08-14): the RGB window's
+        native-clock index was passed straight to cross_correlate_lag
+        without recentering by the coarse offset first. For a small true
+        offset the (thermal-clock, rgb-native-clock) ranges happened to
+        overlap by coincidence and it "worked"; for a large true offset
+        (this test uses -96, matching the real Test_3 session) the two
+        index ranges never overlapped at all and every edge was silently
+        dropped (ValueError -> skip), so the fit failed outright with
+        "not enough to fit a drift model". coarse_offset_sec must be used
+        to recenter the RGB window before correlating, not just to choose
+        which native-clock window to decode.
+        """
+        offset = -96.0
+        bout_starts = [100.0, 300.0, 500.0, 700.0, 900.0]
+        thermal_motion = self._thermal_with_bursts(bout_starts, session_len=1000.0)
+
+        def rgb_window_fn(t_edge):
+            local = thermal_motion[
+                (thermal_motion.index >= t_edge - 15) & (thermal_motion.index <= t_edge + 15)
+            ]
+            return pd.Series(local.to_numpy(), index=local.index.to_numpy() + offset)
+
+        result = fit_bout_edge_lag(thermal_motion, rgb_window_fn, bout_starts, coarse_offset_sec=offset)
+        assert result.offset_sec == pytest.approx(offset, abs=0.5)
+        assert len(result.window_centers_sec) == len(bout_starts)
+
+    def test_too_few_valid_edges_raises(self):
+        thermal_motion = pd.Series([1.0, 2.0], index=[0.0, 1.0])
+        with pytest.raises(ValueError):
+            fit_bout_edge_lag(thermal_motion, lambda t: None, [0.0, 1.0, 2.0], coarse_offset_sec=0.0)
+
+
+class TestManualLowConfidence:
+    def test_sets_low_confidence_flag_and_note(self):
+        r = WindowedSyncResult.manual_low_confidence(offset_sec=11.0, note="only 1 real anchor")
+        assert r.low_confidence is True
+        assert r.confidence_note == "only 1 real anchor"
+        assert r.offset_sec == 11.0
+        assert r.drift_slope == 0.0
+
+    def test_fitted_result_defaults_low_confidence_false(self):
+        r = WindowedSyncResult(
+            window_centers_sec=np.array([0.0, 1.0]),
+            window_lags_sec=np.array([0.0, 0.001]),
+            offset_sec=0.1, drift_slope=0.0001, r_squared=0.98, residual_max_sec=0.02,
+        )
+        assert r.low_confidence is False
+        assert r.confidence_note == ""
+
+    def test_nan_stats_do_not_crash_passes_acceptance_and_correctly_fail(self):
+        r = WindowedSyncResult.manual_low_confidence(offset_sec=11.0)
+        assert passes_acceptance(r) is False
+
+    def test_zero_drift_still_correctly_fails_due_to_nan_residual(self):
+        # drift=0 alone isn't enough to pass -- the residual check (NaN < threshold)
+        # must independently and correctly evaluate to "not accepted", not crash
+        # or silently pass just because the drift branch succeeds.
+        r = WindowedSyncResult.manual_low_confidence(offset_sec=-93.0, drift_slope=0.0)
+        assert passes_acceptance(r, drift_r2_min=0.0) is False
 
 
 class TestPassesAcceptance:

@@ -1,0 +1,38 @@
+{
+  "bouts": {
+    "position_smoothing_window_samples": 5,
+    "dispersion_window_samples": 5,
+    "dispersion_metric": "mad",
+    "stationary_dispersion_threshold_px": 3.0,
+    "velocity_smoothing_window_samples": 5,
+    "stationary_velocity_threshold_px_per_s": 5.0,
+    "qc_valid_only_for_dispersion": true,
+    "min_bout_duration_sec": 15.0,
+    "max_gap_merge_sec": 2.0,
+    "max_unknown_gap_merge_sec": 10.0,
+    "frame_rate_fps": 8.0,
+    "camera_fps_note": "This copy is SCOPED to Test_3/Test_4 only (2026-08-25 camera_fps 8->10 correction, see project memory). stationary_velocity_threshold_px_per_s rescaled 4.0->5.0 to match: velocity_smooth_px_s = pixel_distance/elapsed_time_diff, and elapsed_time_diff shrank by exactly 0.8x under the fps correction, so real velocity values read exactly 1.25x higher for the same physical motion (verified directly, ratio=1.2500 across 10 real sample rows). The main analysis_config.json is intentionally left untouched (still 4.0) since the rest of the session corpus has not yet been re-audited for this same fps error -- do not copy this value back into the main config until that wider audit happens."
+  },
+  "analysis": {
+    "group_factors": [
+      "virus",
+      "injection",
+      "phase"
+    ],
+    "primary_contrast": {
+      "factor": "injection",
+      "levels": [
+        "DCZ",
+        "Vehicle"
+      ]
+    },
+    "random_effect": "mouse_id",
+    "stationary_states": [
+      "stationary",
+      "non_stationary"
+    ],
+    "trial_length_reference_sec": 3000,
+    "min_animals_for_lmm": 3,
+    "min_obs_per_group_for_lmm": 2
+  }
+}

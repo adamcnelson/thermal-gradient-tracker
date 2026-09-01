@@ -19,6 +19,30 @@ trackingOutputs/
 bouts/
 mask_preview/
 preview_tracking/
+landmark_outputs/
+RGB_landmark_extraction/
+morphology_sweep_results.csv
+threshold_sweep_results.csv
 
 # Stray debug image at repo root — not part of the documented project structure
 /07-28-25_4540_B_4541_F_Test3-004_Front_frame004785.png
+
+# Personal reference material (presentations, external example videos) — not project source
+thermalFeatures/
+exampleVideoTracks/
+
+# One-off local backups made during past investigations — not tracked history
+**/_*backup*/
+homography_calibration/*.bak_*
+
+# R analysis workstream — generated figures (recreated by r_analysis/scripts/*.R)
+r_analysis/output/
+r_analysis/.Rhistory
+r_analysis/renv/library/
+r_analysis/renv/staging/
+r_analysis/renv/python/
+r_analysis_RGB_Thermal/output/
+r_analysis_RGB_Thermal/.Rhistory
+r_analysis_RGB_Thermal/renv/library/
+r_analysis_RGB_Thermal/renv/staging/
+r_analysis_RGB_Thermal/renv/python/

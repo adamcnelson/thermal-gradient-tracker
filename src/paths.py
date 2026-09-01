@@ -44,6 +44,9 @@ BOUTS_ANALYSIS_PLOTS_DIR = BOUTS_DIR / "analysis_plots"
 # spent effort producing them and they aren't cheaply regenerable.
 HOMOGRAPHY_CALIBRATION_DIR = PROJECT_ROOT / "homography_calibration"
 
+# ── v7 landmarks: Stage 5-7 outputs (RGB tracks, bout/frame tables, QC) ────
+LANDMARK_OUTPUTS_DIR = PROJECT_ROOT / "landmark_outputs"
+
 
 def ensure_dir(path: Path) -> Path:
     """mkdir -p and return the path, for use at the point a directory is written to."""

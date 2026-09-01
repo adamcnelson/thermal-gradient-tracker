@@ -114,6 +114,44 @@ class TestBuildBoutOutputRow:
         assert row.tail_delta_t_c == 2.0
         assert row.qc_valid
 
+    def test_low_confidence_sync_flag_carries_through_without_blocking_qc_valid(self):
+        low_conf_sync = WindowedSyncResult.manual_low_confidence(
+            offset_sec=11.0, drift_slope=0.0, note="Test_4: no method converged past ~1 anchor"
+        )
+        dorsal = DorsalSurfaceMeasurement(mean_c=27.0, median_c=26.8, pixel_count=400, valid=True)
+        row = build_bout_output_row(
+            session="07-30-25_4540_F_4541_B_Test4-008", track="F", mouse_id=4540, bout_id=9,
+            bout_start_thermal_sec=100.0, bout_end_thermal_sec=140.0,
+            sync_result=low_conf_sync, mean_floor_temp_c=27.0,
+            warm_spot_temp_c=None, dorsal=dorsal, tail=None,
+            n_frames_averaged=2, qc_valid=True, qc_reasons=[],
+        )
+        assert row.sync_low_confidence is True
+        # a low-confidence sync does not, by itself, invalidate the row --
+        # it's a separate advisory column, not folded into qc_valid/qc_reasons
+        assert row.qc_valid is True
+        assert row.qc_reasons == []
+
+    def test_no_sync_result_defaults_low_confidence_false(self):
+        row = build_bout_output_row(
+            session="s", track="F", mouse_id=1, bout_id=0,
+            bout_start_thermal_sec=0.0, bout_end_thermal_sec=10.0,
+            sync_result=None, mean_floor_temp_c=None,
+            warm_spot_temp_c=None, dorsal=None, tail=None,
+            n_frames_averaged=0, qc_valid=False, qc_reasons=[],
+        )
+        assert row.sync_low_confidence is False
+
+    def test_high_confidence_sync_flag_is_false(self):
+        row = build_bout_output_row(
+            session="s", track="F", mouse_id=1, bout_id=0,
+            bout_start_thermal_sec=0.0, bout_end_thermal_sec=10.0,
+            sync_result=self._sync(), mean_floor_temp_c=None,
+            warm_spot_temp_c=None, dorsal=None, tail=None,
+            n_frames_averaged=0, qc_valid=True, qc_reasons=[],
+        )
+        assert row.sync_low_confidence is False
+
     def test_missing_sync_leaves_rgb_times_none(self):
         row = build_bout_output_row(
             session="s", track="F", mouse_id=1, bout_id=0,
@@ -181,6 +219,21 @@ class TestBuildSessionQCReport:
         assert report.homography_passes is None
         assert report.sync_passes is None
         assert report.nudge_events == []
+        assert report.sync_low_confidence is None
+
+    def test_low_confidence_sync_flag_and_note_carry_through(self):
+        low_conf_sync = WindowedSyncResult.manual_low_confidence(
+            offset_sec=11.0, note="Test_4: only 1 real position-anchor transition found"
+        )
+        report = build_session_qc_report(
+            session="07-30-25_4540_F_4541_B_Test4-008", track="F",
+            homography_fit=None, homography_max_rmse_px=1.0,
+            sync_result=low_conf_sync,
+        )
+        assert report.sync_low_confidence is True
+        assert "Test_4" in report.sync_confidence_note
+        # no real fit exists behind a manually-adopted offset -> can't pass
+        assert report.sync_passes is False
 
 
 class TestComputeLandmarkYieldByZone:

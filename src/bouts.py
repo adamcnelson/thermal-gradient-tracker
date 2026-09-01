@@ -34,6 +34,49 @@ def classify_stationary(
     return stat.rename("stationary")
 
 
+def classify_frame_state(
+    df: pd.DataFrame,
+    disp_thresh: float,
+    vel_thresh: Optional[float] = None,
+) -> pd.Series:
+    """
+    Return a 3-valued categorical Series: "stationary", "moving", or
+    "unknown" — a finer-grained sibling of classify_stationary() (same
+    stationary/not-stationary boundary) that additionally distinguishes
+    WHY a sample isn't stationary.
+
+    Real bug this exists to let rle_bouts() fix (2026-08-25, found via
+    project_v7's bout-fragmentation investigation): classify_stationary()
+    treats "confirmed moving" and "no real measurement at all"
+    (qc_flag != "ok" — e.g. no_mouse_roi, jump, pre_entry) identically as
+    "not stationary". A single brief no_mouse_roi dropout in the middle of
+    an otherwise long, genuinely stationary bout then fragments that bout
+    at the RLE step, before rle_bouts()'s gap-merge even runs (real
+    measured impact: Test_4 loses no_mouse_roi on 16% of frames, Test_3
+    1.6%; see [[project-v7-bout-fragmentation-root-cause]] memory).
+    "moving" (a real measurement that fails the dispersion/velocity
+    threshold — confirmed motion) and "unknown" (no real measurement
+    exists) are NOT the same evidence and shouldn't be treated the same
+    way when deciding whether to bridge a gap between two stationary
+    runs: bridging through confirmed motion would fabricate stationarity
+    the data actively contradicts, but bridging through a brief unknown
+    gap (surrounded by real stationary evidence on both sides) does not
+    fabricate anything — it just declines to let an absence of
+    measurement masquerade as evidence of movement.
+    """
+    valid = df["qc_flag"] == "ok"
+    disp = df.get("centroid_x_roll_dispersion", pd.Series(np.nan, index=df.index))
+    stat = valid & disp.notna() & (disp < disp_thresh)
+    if vel_thresh is not None and "velocity_smooth_px_s" in df.columns:
+        vel = df["velocity_smooth_px_s"]
+        stat = stat & (vel.isna() | (vel < vel_thresh))
+
+    state = pd.Series("moving", index=df.index)
+    state[~valid] = "unknown"
+    state[stat] = "stationary"
+    return state.rename("frame_state")
+
+
 # ── run-length encoding ────────────────────────────────────────────────────────
 
 def _rle(mask: pd.Series) -> List[Tuple[bool, int, int]]:
@@ -59,9 +102,23 @@ def rle_bouts(
     elapsed_time_sec: pd.Series,
     min_bout_sec: float,
     max_gap_sec: float,
+    frame_state: Optional[pd.Series] = None,
+    max_unknown_gap_sec: Optional[float] = None,
 ) -> pd.DataFrame:
     """
     Detect stationary bouts from a boolean mask, merge short gaps, filter short bouts.
+
+    frame_state / max_unknown_gap_sec (both optional, default off —
+    existing callers see no behavior change): pass classify_frame_state()'s
+    3-valued output to let a gap merge under the more permissive
+    max_unknown_gap_sec instead of max_gap_sec when EVERY sample inside
+    that gap is "unknown" (no real measurement — e.g. a brief
+    no_mouse_roi dropout), not "moving" (a real measurement showing
+    confirmed motion). A gap containing even one "moving" sample always
+    uses max_gap_sec, same as before — this only extends how long an
+    UNMEASURED stretch can be bridged, never how long a MOVING stretch
+    can be. See classify_frame_state()'s docstring for the real bug this
+    fixes (project_v7 bout-fragmentation investigation, 2026-08-25).
 
     Returns a DataFrame with columns:
       bout_index, bout_start_idx, bout_end_idx,
@@ -69,6 +126,7 @@ def rle_bouts(
     """
     mask = stationary_mask.reset_index(drop=True)
     t = elapsed_time_sec.reset_index(drop=True)
+    state = frame_state.reset_index(drop=True) if frame_state is not None else None
 
     runs = _rle(mask)
 
@@ -93,7 +151,12 @@ def rle_bouts(
     merged = [epochs[0].copy()]
     for ep in epochs[1:]:
         gap = ep["start_sec"] - merged[-1]["end_sec"]
-        if gap <= max_gap_sec:
+        tolerance = max_gap_sec
+        if state is not None and max_unknown_gap_sec is not None:
+            gap_states = state.iloc[merged[-1]["end_idx"] + 1 : ep["start_idx"]]
+            if len(gap_states) > 0 and bool((gap_states == "unknown").all()):
+                tolerance = max(max_gap_sec, max_unknown_gap_sec)
+        if gap <= tolerance:
             merged[-1]["end_idx"] = ep["end_idx"]
             merged[-1]["end_sec"] = ep["end_sec"]
         else:

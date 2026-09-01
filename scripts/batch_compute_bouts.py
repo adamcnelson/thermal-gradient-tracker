@@ -23,7 +23,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src import paths
 from src.analysis_config import AnalysisConfig
-from src.bouts import classify_stationary, compute_bout_metrics, compute_bout_summary, rle_bouts
+from src.bouts import classify_frame_state, classify_stationary, compute_bout_metrics, compute_bout_summary, rle_bouts
 from src.bout_qc import save_bout_diagnostic
 from src.logging_utils import setup_logger
 from src.velocity import compute_velocity
@@ -87,12 +87,15 @@ def main():
             df = compute_velocity(df, config.bouts)
             stat_mask = classify_stationary(df, disp_thresh, vel_thresh)
             df["stationary"] = stat_mask
+            frame_state = classify_frame_state(df, disp_thresh, vel_thresh)
 
             bouts_df = rle_bouts(
                 stat_mask,
                 df["elapsed_time_sec"],
                 config.bouts.min_bout_duration_sec,
                 config.bouts.max_gap_merge_sec,
+                frame_state=frame_state,
+                max_unknown_gap_sec=config.bouts.max_unknown_gap_merge_sec,
             )
 
             stem = csv_path.stem.replace("_tracking_every10frames", "").replace("_tracking", "")

@@ -4,36 +4,36 @@
   "lane": "F",
   "rgb_points": [
     [
-      132,
-      82
+      1785.0,
+      89.0
     ],
     [
-      990,
-      41
+      918.0,
+      46.0
     ],
     [
-      1835,
-      10
+      91.0,
+      20.0
     ],
     [
-      1842,
-      94
+      83.0,
+      105.0
     ],
     [
-      1843,
-      186
+      83.0,
+      185.0
     ],
     [
-      999,
-      226
+      910.0,
+      222.0
     ],
     [
-      137,
-      260
+      1772.0,
+      258.0
     ],
     [
-      137,
-      167
+      1783.0,
+      168.0
     ]
   ],
   "thermal_points": [
@@ -42,7 +42,7 @@
       42
     ],
     [
-      201,
+      207,
       42
     ],
     [
@@ -51,15 +51,15 @@
     ],
     [
       411,
-      18
+      21
     ],
     [
-      410,
+      411,
       0
     ],
     [
-      202,
-      1
+      205,
+      0
     ],
     [
       0,
@@ -72,31 +72,32 @@
   ],
   "H": [
     [
-      0.22887088235658168,
-      -0.002931418416084126,
-      -30.502974978768016
+      -0.24188463271349725,
+      -0.021038223355506223,
+      434.1593176986539
     ],
     [
-      -0.010436576129486085,
-      -0.22465461844298998,
-      60.229383077007554
+      0.010229220222774667,
+      -0.25139200482274204,
+      46.05068582352571
     ],
     [
-      -2.8549754752834623e-05,
-      3.1958661055926234e-05,
+      2.4528418482562293e-05,
+      -1.392928828951681e-05,
       1.0
     ]
   ],
-  "rmse_px": 1.6790057012152046,
+  "rmse_px": 1.2027046162334518,
   "residuals_px": [
-    1.6140078797577222,
-    0.4298233577662476,
-    1.0479117562361167,
-    2.9314287119703684,
-    0.8367562436831554,
-    2.0025712417724963,
-    0.39792501774491884,
-    2.2809036260257525
+    1.8448185625704465,
+    1.0113186527163163,
+    0.14878308869447443,
+    0.8155817817165708,
+    0.7061798618521787,
+    0.6118258868917554,
+    0.664877497638032,
+    2.267922651892322
   ],
-  "passes_acceptance": false
+  "passes_acceptance": false,
+  "orientation_note": "Test_4 (2026-08-25): confirmed via real photographic comparison (thermalFeatures/Track_Alignment_Test4.pptx) that this session is a FULL 180-degree rotation between RGB and thermal (both horizontal AND vertical flip), unlike the vertical-flip-only convention that holds for Test_3 and was previously assumed universal by calibrate_homography.py. rgb_points here are stored PRE-MIRRORED (crop_width - raw_clicked_x) so this H, fit directly from these points via fit_homography(), reproduces the empirically-verified-correct mapping. Likely physical cause: the thermal camera was probably physically repositioned/rotated 180 degrees between the 07-28 and 07-30 recording sessions while the RGB webcam mounting stayed fixed (the raw RGB full-frame layout is visually identical between the two sessions; only the thermal-side relationship changed)."
 }
