@@ -25,6 +25,7 @@ from src.landmarks.rgb_landmarks import (
     extract_mouse_detection,
 )
 from src.landmarks.registration import apply_homography
+from src.landmarks.video_io import SequentialFrameReader
 from src.landmarks.thermal_measurement import (
     anterior_region_mask,
     dorsal_surface_mask,
@@ -293,7 +294,7 @@ def local_edge_refine(thermal_celsius, warped_mask, search_px=LOCAL_EDGE_REFINE_
 
 
 def measure_one_sample(
-    *, bout_index, thermal_t, stationary, thermal_frames, sync_result, cap, rgb_fps, total_rgb,
+    *, bout_index, thermal_t, stationary, thermal_frames, sync_result, rgb_reader, rgb_fps, total_rgb,
     split_row, track, bg_model, H, thermal_native_lookup, homography_rmse, session_label,
 ):
     """
@@ -322,8 +323,7 @@ def measure_one_sample(
     if not (0 <= rgb_frame_idx < total_rgb):
         rec["fail"] = "rgb time out of video range"
         return rec, None
-    cap.set(cv2.CAP_PROP_POS_FRAMES, rgb_frame_idx)
-    ok, frame = cap.read()
+    ok, frame = rgb_reader.read(rgb_frame_idx)
     if not ok:
         rec["fail"] = "rgb read failed"
         return rec, None
@@ -517,7 +517,7 @@ def process_session(name, cfg, output_dir):
     reader.close()
     print(f"thermal pass: {len(thermal_frames)}/{len(idx_set)} frames read in {time.time()-t0:.1f}s", flush=True)
 
-    # ---- RGB background model + per-frame seek/read ----
+    # ---- RGB background model (seeking is fine here: a median, frame identity doesn't matter) ----
     cap = cv2.VideoCapture(cfg["rgb_video"])
     rgb_fps = cap.get(cv2.CAP_PROP_FPS)
     total_rgb = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -537,22 +537,27 @@ def process_session(name, cfg, output_dir):
     bg_model = RgbBackgroundModel.build(bg_frames)
     print(f"split_row={split_row} rgb_fps={rgb_fps:.3f} bg from {len(bg_frames)} frames", flush=True)
 
+    cap.release()
+
     # ---- per-sample landmark + thermal measurement ----
-    per_sample = []
-    frame_rows = []
+    # RGB frames are reached by sequential decode (POS_FRAMES seeking lands 1.69% late on
+    # Test_7's mp4 -- see src/landmarks/video_io.py), so samples are measured in time order
+    # and the results put back in sample_plan order afterwards.
+    rgb_reader = SequentialFrameReader(cfg["rgb_video"])
+    results = [None] * len(sample_plan)
     t0 = time.time()
-    for bout_index, thermal_t, stationary in sample_plan:
-        rec, frame_row = measure_one_sample(
+    for i in sorted(range(len(sample_plan)), key=lambda i: sample_plan[i][1]):
+        bout_index, thermal_t, stationary = sample_plan[i]
+        results[i] = measure_one_sample(
             bout_index=bout_index, thermal_t=thermal_t, stationary=stationary,
-            thermal_frames=thermal_frames, sync_result=sync_result, cap=cap,
+            thermal_frames=thermal_frames, sync_result=sync_result, rgb_reader=rgb_reader,
             rgb_fps=rgb_fps, total_rgb=total_rgb, split_row=split_row, track=cfg["track"],
             bg_model=bg_model, H=H, thermal_native_lookup=thermal_native_lookup,
             homography_rmse=homography_rmse, session_label=cfg["session_label"],
         )
-        per_sample.append(rec)
-        if frame_row is not None:
-            frame_rows.append(frame_row)
-    cap.release()
+    rgb_reader.release()
+    per_sample = [rec for rec, _ in results]
+    frame_rows = [row for _, row in results if row is not None]
     n_stationary_samples = sum(1 for _, _, s in sample_plan if s)
     n_nonstationary_samples = len(sample_plan) - n_stationary_samples
     print(f"per-sample measurement: {len(per_sample)} samples ({n_stationary_samples} stationary + "

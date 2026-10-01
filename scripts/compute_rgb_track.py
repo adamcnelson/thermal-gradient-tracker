@@ -59,6 +59,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src import paths
 from src.landmarks.registration import apply_homography
 from src.landmarks.rgb_landmarks import RgbBackgroundModel, segment_mouse_rgb
+from src.landmarks.video_io import SequentialFrameReader
 from src.landmarks.webcam_preprocessing import LANE_TOP, detect_track_split_row, split_track_crops
 from src.logging_utils import setup_logger
 
@@ -72,6 +73,7 @@ def compute_rgb_track(video_path: str, lane: str, sample_hz: float, log,
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Could not open video: {video_path}")
+    reader = None
     try:
         rgb_fps = cap.get(cv2.CAP_PROP_FPS)
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -102,14 +104,17 @@ def compute_rgb_track(video_path: str, lane: str, sample_hz: float, log,
         bg_model = RgbBackgroundModel.build(bg_frames)
         log.info(f"  Background model built from {len(bg_frames)} frames")
 
+        # Sample frames via sequential decode, not POS_FRAMES seeking (lands 1.69% late
+        # on Test_7's mp4 -- see src/landmarks/video_io.py). The background model above
+        # can keep seeking: it's a median over 30 frames, so frame identity doesn't matter.
+        reader = SequentialFrameReader(video_path)
         sample_times = np.arange(0, duration_sec, 1.0 / sample_hz)
         rows = []
         for i, t in enumerate(sample_times):
             idx = int(round(t * rgb_fps))
             if not (0 <= idx < total):
                 continue
-            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-            ok, frame = cap.read()
+            ok, frame = reader.read(idx)
             if not ok:
                 continue
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -124,6 +129,8 @@ def compute_rgb_track(video_path: str, lane: str, sample_hz: float, log,
                 log.info(f"  Processed {i + 1}/{len(sample_times)} samples")
     finally:
         cap.release()
+        if reader is not None:
+            reader.release()
 
     df = pd.DataFrame(rows).sort_values("rgb_time_sec").reset_index(drop=True)
     dt = df["rgb_time_sec"].diff()
