@@ -1,0 +1,106 @@
+{
+  "seq_path": "/Volumes/cluster/alcova/bedfordlab/ThermalGradient/croppedSeqFiles/08-06-25_Test_6/08-06-25_4547_F_4552_B_Test6-015_Front.seq",
+  "video_path": "/Volumes/cluster/alcova/bedfordlab/ThermalGradient/Process_Jason/08-06-25_Test_6/2025-08-06_09-57-57.mp4",
+  "lane": "F",
+  "rgb_points": [
+    [
+      1785.0,
+      89.0
+    ],
+    [
+      918.0,
+      46.0
+    ],
+    [
+      91.0,
+      20.0
+    ],
+    [
+      83.0,
+      105.0
+    ],
+    [
+      83.0,
+      185.0
+    ],
+    [
+      910.0,
+      222.0
+    ],
+    [
+      1772.0,
+      258.0
+    ],
+    [
+      1783.0,
+      168.0
+    ]
+  ],
+  "thermal_points": [
+    [
+      0,
+      42
+    ],
+    [
+      207,
+      42
+    ],
+    [
+      411,
+      42
+    ],
+    [
+      411,
+      21
+    ],
+    [
+      411,
+      0
+    ],
+    [
+      205,
+      0
+    ],
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      19
+    ]
+  ],
+  "H": [
+    [
+      -0.24188463271349725,
+      -0.021038223355506223,
+      434.1593176986539
+    ],
+    [
+      0.010229220222774667,
+      -0.25139200482274204,
+      46.05068582352571
+    ],
+    [
+      2.4528418482562293e-05,
+      -1.392928828951681e-05,
+      1.0
+    ]
+  ],
+  "rmse_px": 1.2027046162334518,
+  "residuals_px": [
+    1.8448185625704465,
+    1.0113186527163163,
+    0.14878308869447443,
+    0.8155817817165708,
+    0.7061798618521787,
+    0.6118258868917554,
+    0.664877497638032,
+    2.267922651892322
+  ],
+  "passes_acceptance": false,
+  "orientation_note": "Test_4 (2026-08-25): confirmed via real photographic comparison (thermalFeatures/Track_Alignment_Test4.pptx) that this session is a FULL 180-degree rotation between RGB and thermal (both horizontal AND vertical flip), unlike the vertical-flip-only convention that holds for Test_3 and was previously assumed universal by calibrate_homography.py. rgb_points here are stored PRE-MIRRORED (crop_width - raw_clicked_x) so this H, fit directly from these points via fit_homography(), reproduces the empirically-verified-correct mapping. Likely physical cause: the thermal camera was probably physically repositioned/rotated 180 degrees between the 07-28 and 07-30 recording sessions while the RGB webcam mounting stayed fixed (the raw RGB full-frame layout is visually identical between the two sessions; only the thermal-side relationship changed).",
+  "source": "inherited_base_regime",
+  "regime": "horizontal+vertical",
+  "base_homography": "07-30-25_4540_F_4541_B_Test4-008_Front_homography.json"
+}
