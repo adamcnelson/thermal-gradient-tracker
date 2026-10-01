@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -205,17 +205,46 @@ def resolve_lut_row(
 
 # ── join ───────────────────────────────────────────────────────────────────────
 
+def _video_file_join_key(df: pd.DataFrame, fpath: str) -> Tuple[str, str]:
+    """Default join key: parse (stem, lane) out of the tracking CSV's video_file column."""
+    if "video_file" in df.columns and len(df) > 0:
+        vf = str(df["video_file"].iloc[0])
+    else:
+        vf = Path(fpath).name
+    return parse_tracking_filename(vf)
+
+
+def _session_track_join_key(df: pd.DataFrame, fpath: str) -> Tuple[str, str]:
+    """
+    project_brief_v8.md §3.2: Stage 7's bout_output.csv / frame_output.csv already carry
+    `session` and `track` columns directly -- session is exactly the Video_name_SEQ stem
+    (stage7_real_run.py's SESSIONS[...]["session_label"]) and track is already "F"/"B"
+    (== Lane), so no filename parsing is needed here, unlike the legacy video_file-keyed
+    tracking CSVs.
+    """
+    if len(df) == 0:
+        return Path(fpath).stem, ""
+    return str(df["session"].iloc[0]), str(df["track"].iloc[0])
+
+
 def join_metadata(
     tracking_files: List[str],
     lut_df: pd.DataFrame,
+    key_fn: Callable[[pd.DataFrame, str], Tuple[str, str]] = _video_file_join_key,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Join tracking CSVs to metadata LUT.
+    Join tracking/landmark CSVs to metadata LUT.
 
     Returns (master_df, join_report_df).
 
-    master_df has one row per tracking sample with metadata columns appended.
-    join_report_df has one row per tracking file with join outcome.
+    master_df has one row per tracking/landmark sample with metadata columns appended.
+    join_report_df has one row per input file with join outcome.
+
+    key_fn derives (stem, lane) -- the LUT join key -- from each file's already-loaded
+    DataFrame + its path. Defaults to the legacy video_file-column parsing; pass
+    _session_track_join_key (or use join_landmark_metadata() below) for Stage 7's
+    session/track-keyed bout_output.csv / frame_output.csv files. The LUT-matching
+    logic itself (resolve_lut_row()) is unchanged either way.
     """
     meta_cols = [
         "Mouse_ID", "Tail_ID", "Virus", "Injection", "phase",
@@ -245,13 +274,7 @@ def join_metadata(
             })
             continue
 
-        # Derive stem and lane from the video_file column (first row)
-        if "video_file" in df.columns and len(df) > 0:
-            vf = str(df["video_file"].iloc[0])
-        else:
-            vf = Path(fpath).name
-
-        stem, lane = parse_tracking_filename(vf)
+        stem, lane = key_fn(df, fpath)
         row_match, status = resolve_lut_row(stem, lane, lut_df)
 
         report_row: dict = {
@@ -279,7 +302,12 @@ def join_metadata(
             df["injection"] = _normalize(row_match.get("Injection", ""))
             df["phase"] = _normalize(row_match.get("phase", ""))
             df["lane"] = lane
-            df["track"] = "Front" if lane == "F" else "Back"
+            # Legacy tracking CSVs have no track column of their own, so this adds one;
+            # Stage 7's bout/frame output already has track ("F"/"B", the new pipeline's
+            # own convention) -- preserve it rather than clobbering it with the "Front"/
+            # "Back" long form used only for legacy files.
+            if "track" not in df.columns:
+                df["track"] = "Front" if lane == "F" else "Back"
             df["seq_name_warning"] = vnn if vnn else ""
 
             master_parts.append(df)
@@ -292,3 +320,17 @@ def join_metadata(
     report_df = pd.DataFrame(report_rows)
 
     return master_df, report_df
+
+
+def join_landmark_metadata(
+    landmark_files: List[str],
+    lut_df: pd.DataFrame,
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    project_brief_v8.md §3.2 thin entry point: join Stage 7's bout_output.csv /
+    frame_output.csv files to the metadata LUT, keyed on their own session+track
+    columns instead of a parsed video_file string. See _session_track_join_key()
+    and join_metadata()'s key_fn param -- the LUT-matching logic (resolve_lut_row())
+    is exactly the one already used for the legacy pipeline, unchanged.
+    """
+    return join_metadata(landmark_files, lut_df, key_fn=_session_track_join_key)

@@ -142,10 +142,18 @@ def render_notail_example(out_path, name, rec):
     plt.close(fig)
 
 
-def compute_candidates(name, cfg):
+def compute_candidates(name, cfg, extra_samples=None):
     """Runs the full per-sample pass ONCE for a session; returns
     {"extended": [...], "fallback": [...], "no_tail": [...]} -- each render_*_qc.py
-    script applies its own selection logic to this same shared result."""
+    script applies its own selection logic to this same shared result.
+
+    extra_samples (added 2026-09-01, project_brief_v8.md §3.1 QC review): an optional
+    list of thermal_t floats sampled OUTSIDE stationary bouts (e.g. non-stationary
+    sampling-plan times) -- appended to the plan as (bout_index=None, thermal_t)
+    entries, so a caller can visually spot-check the new non-stationary sampling mode
+    with the exact same rendering code used for stationary-bout candidates, rather
+    than a separate one-off rendering path.
+    """
     print(f"\n=== {name} (computing candidates) ===", flush=True)
     tracking_df = pd.read_csv(cfg["tracking_csv"])
     bouts_df_raw = pd.read_csv(cfg["bouts_csv"])
@@ -162,6 +170,8 @@ def compute_candidates(name, cfg):
         b0, b1 = bout["bout_start_sec"], bout["bout_end_sec"]
         for frac in BOUT_SAMPLE_FRACS[:FRAMES_PER_BOUT]:
             bout_frame_plan.append((int(bout["bout_index"]), b0 + frac * (b1 - b0)))
+    for t in (extra_samples or []):
+        bout_frame_plan.append((None, float(t)))
 
     thermal_idx_wanted = sorted({int(round(t * THERMAL_FPS)) for _, t in bout_frame_plan})
     idx_set = set(thermal_idx_wanted)

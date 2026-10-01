@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.metadata import (
     filter_excluded,
+    join_landmark_metadata,
     join_metadata,
     parse_tracking_filename,
     resolve_lut_row,
@@ -196,5 +197,53 @@ def test_join_report_unmatched(tmp_path):
     master, report = join_metadata([str(csv_path)], kept)
 
     assert len(master) == 0  # no match → nothing in master
+    assert len(report) == 1
+    assert report.iloc[0]["status"] == "unmatched"
+
+
+# ── join_landmark_metadata (project_brief_v8.md §3.2) ───────────────────────────
+
+def test_join_landmark_metadata_keys_on_session_and_track(tmp_path):
+    """Stage 7's session+track columns should resolve the same LUT row
+    join_metadata() would via video_file -- no filename parsing needed."""
+    lut = _make_lut()
+    kept, _ = filter_excluded(lut)
+
+    csv_path = tmp_path / "07-28-25_4540_B_4541_F_Test3-004_F_bout_output.csv"
+    df = pd.DataFrame({
+        "session": ["07-28-25_4540_B_4541_F_Test3-004"] * 3,
+        "track": ["F"] * 3,
+        "bout_id": [0, 1, 2],
+        "dorsal_mean_c": [28.0, 29.0, 27.5],
+        "qc_valid": [True, True, False],
+    })
+    df.to_csv(str(csv_path), index=False)
+
+    master, report = join_landmark_metadata([str(csv_path)], kept)
+
+    assert len(master) == 3
+    assert master["mouse_id"].iloc[0] == "4541"
+    assert master["virus"].iloc[0] == "Gq"
+    assert master["phase"].iloc[0] == "experimental"
+    # track already carries the new pipeline's own "F"/"B" convention --
+    # the join must not clobber it with the legacy "Front"/"Back" long form.
+    assert (master["track"] == "F").all()
+
+
+def test_join_landmark_metadata_unmatched_reported(tmp_path):
+    lut = _make_lut()
+    kept, _ = filter_excluded(lut)
+
+    csv_path = tmp_path / "99-99-99_unknown_F_frame_output.csv"
+    df = pd.DataFrame({
+        "session": ["99-99-99_0000_F_0001_B"] * 2,
+        "track": ["F"] * 2,
+        "elapsed_time_thermal_sec": [0.0, 1.0],
+    })
+    df.to_csv(str(csv_path), index=False)
+
+    master, report = join_landmark_metadata([str(csv_path)], kept)
+
+    assert len(master) == 0
     assert len(report) == 1
     assert report.iloc[0]["status"] == "unmatched"

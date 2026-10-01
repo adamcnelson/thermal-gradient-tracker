@@ -183,6 +183,22 @@ class FrameOutputRow:
     floor_temp_mean_c: Optional[float]
     qc_flag: str
     posture: Optional[str] = None  # "extended" | "curled" | "ambiguous" | None (rgb_landmarks.classify_mouse_blob)
+    warm_spot_temp_c: Optional[float] = None
+    # Added 2026-09-02 (project_brief_v8.md §4 scoping): frame_output.csv started as a
+    # diagnostic table and only ever carried dorsal (mouse_surface_temp_mean_c) + floor
+    # temp -- but §4's time-course/distribution/paired plots need frame-level, stationary-
+    # split values for ALL three outcomes, not just dorsal. Only applicable for
+    # posture=="extended" rows (see anterior_region_mask() requirement) -- None otherwise,
+    # same applicability rule as the bout-level warm_spot_temp_c column.
+    tail_delta_t_c: Optional[float] = None
+    # Same 2026-09-02 addition. qc_flag already gates specifically on this measurement
+    # (see gate_measurement() call site) -- qc_flag=="ok" is the applicability filter for
+    # this column, exactly as it already is for the bout-level tail_delta_t_c.
+    stationary: bool = True
+    # True for a sample drawn from a stationary bout (the original, only sampling mode);
+    # False for a sample drawn from stage7_real_run.py's non-stationary sampling pass
+    # (project_brief_v8.md §3.1) -- same per-sample measurement, different sampling
+    # schedule and no bout_id (non-stationary samples aren't part of any bout).
     sync_low_confidence: bool = False
     registration_low_confidence: bool = False
     local_edge_refined: bool = False
