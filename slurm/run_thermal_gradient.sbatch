@@ -20,12 +20,27 @@
 #                                      experimental metadata LUT.
 #   4. analyze_treatment_effects.py — fit treatment-effect models and write
 #                                      plots/tables.
+#   5. stage7_real_run.py           — RGB+thermal registration/landmark
+#                                      measurement (warm-spot, dorsal surface,
+#                                      tail delta-T) for the sessions listed
+#                                      in stage7_sessions_config.json. As of
+#                                      2026-10-01 that's ONLY Test_3/4/7 (x
+#                                      Front/Back, 6 session x lanes) — every
+#                                      other session has a homography now
+#                                      (see project memory
+#                                      project_v8_homography_hybrid_calibration.md)
+#                                      but NOT yet the human-verified RGB<->
+#                                      thermal sync offset/entry-time Stage 5
+#                                      also needs; adding a session here means
+#                                      adding it to that config file first,
+#                                      not just dropping a homography in.
 #
-# All four stages are already fully non-interactive in this codebase. The
+# All five stages are already fully non-interactive in this codebase. The
 # interactive/manual QC scripts (create_arena_mask.py, select_training_frames.py,
-# train_mouse_detector.py) are retired and are NOT part of this job —
-# tracking_config.json (including its arena_polygon) is a finalized, fixed
-# input and is only ever *read* here, never regenerated.
+# train_mouse_detector.py, calibrate_homography.py) are retired/human-run-only
+# and are NOT part of this job — tracking_config.json (including its
+# arena_polygon) and stage7_sessions_config.json are finalized, fixed inputs
+# and are only ever *read* here, never regenerated.
 #
 # ---------------------------------------------------------------------------
 # STORAGE MODEL — READ THIS BEFORE EDITING PATHS BELOW
@@ -165,14 +180,22 @@ VENV_PATH="${REPO_DIR}/.venv"
 #     READ-ONLY source as far as this job is concerned.
 ALCOVA_SEQ_INPUT_DIR="/cluster/alcova/bedfordlab/<PATH_TO_CROPPED_SEQ_FILES>"
 
+# ALCOVA_RGB_VIDEO_DIR — directory containing the RGB webcam .mp4 files, on
+#     Alcova (the Process_Jason-equivalent root). Only used by Stage 5
+#     (stage7_real_run.py) — Stages 1-4 never touch RGB video. Same
+#     read-only-from-this-job rule as ALCOVA_SEQ_INPUT_DIR above.
+ALCOVA_RGB_VIDEO_DIR="/cluster/alcova/bedfordlab/<PATH_TO_RGB_VIDEO_FILES>"
+
 # Fixed config/metadata inputs — also only ever read, never written, and
 # normally live inside the repo (MedicineBow /project) rather than on Alcova.
 CONFIG_TRACKING="${REPO_DIR}/tracking_config.json"
 CONFIG_ANALYSIS="${REPO_DIR}/analysis_config.json"
 LUT="${REPO_DIR}/metadata/LUT_CLEAN_July6.csv"
+STAGE7_SESSIONS_CONFIG="${REPO_DIR}/stage7_sessions_config.json"
 
 # ---- OUTPUT (MedicineBow ONLY — /project or /gscratch) ----------------------
-# OUTPUT_DIR / BOUTS_DIR — where this job writes everything it produces.
+# OUTPUT_DIR / BOUTS_DIR / LANDMARK_OUTPUT_DIR — where this job writes
+# everything it produces.
 #
 #   *** MUST resolve to a MedicineBow path (/project/... or /gscratch/...). ***
 #   *** NEVER point these at /cluster/alcova/... — writing from MedicineBow ***
@@ -186,6 +209,7 @@ LUT="${REPO_DIR}/metadata/LUT_CLEAN_July6.csv"
 # point at Alcova.
 OUTPUT_DIR="${REPO_DIR}/trackingOutputs"
 BOUTS_DIR="${REPO_DIR}/bouts"
+LANDMARK_OUTPUT_DIR="${REPO_DIR}/landmark_outputs"
 
 # Set to "--recursive" if ALCOVA_SEQ_INPUT_DIR has session subfolders (matches
 # the README's "all subfolders at once" usage), or "" for a single flat
@@ -207,8 +231,10 @@ echo "Start time:  $(date)"
 echo "Working dir: $(pwd)"
 echo "CPUs:        ${SLURM_CPUS_PER_TASK:-N/A}"
 echo "Input  (Alcova, read-only): ${ALCOVA_SEQ_INPUT_DIR}"
+echo "                             ${ALCOVA_RGB_VIDEO_DIR}"
 echo "Output (MedicineBow only):  ${OUTPUT_DIR}"
 echo "                             ${BOUTS_DIR}"
+echo "                             ${LANDMARK_OUTPUT_DIR}"
 echo "============================================================"
 
 # Load Python via LMOD. CONFIRMED 2026-07-28: python/3.12.0 requires a
@@ -282,29 +308,41 @@ if [ -z "$(find "${ALCOVA_SEQ_INPUT_DIR}" -iname '*.seq' -print -quit)" ]; then
 fi
 echo "OK: .seq input files found under ${ALCOVA_SEQ_INPUT_DIR}"
 
+# 3b) RGB video input, same check -- only exercised by Stage 5.
+if [ ! -d "${ALCOVA_RGB_VIDEO_DIR}" ]; then
+    echo "FATAL: ALCOVA_RGB_VIDEO_DIR does not exist or is not readable: ${ALCOVA_RGB_VIDEO_DIR}" >&2
+    exit 1
+fi
+if [ -z "$(find "${ALCOVA_RGB_VIDEO_DIR}" -iname '*.mp4' -print -quit)" ]; then
+    echo "FATAL: no .mp4 files found under ${ALCOVA_RGB_VIDEO_DIR}" >&2
+    exit 1
+fi
+echo "OK: RGB .mp4 input files found under ${ALCOVA_RGB_VIDEO_DIR}"
+
 # 4) Config files and LUT must be present (all treated as fixed, committed
 #    inputs — this job never regenerates tracking_config.json's arena_polygon
 #    or any other config value).
-for f in "${CONFIG_TRACKING}" "${CONFIG_ANALYSIS}" "${LUT}"; do
+for f in "${CONFIG_TRACKING}" "${CONFIG_ANALYSIS}" "${LUT}" "${STAGE7_SESSIONS_CONFIG}"; do
     if [ ! -f "${f}" ]; then
         echo "FATAL: required input file not found: ${f}" >&2
         exit 1
     fi
 done
-echo "OK: tracking config, analysis config, and metadata LUT all present."
-echo "    tracking_config: ${CONFIG_TRACKING}"
-echo "    analysis_config: ${CONFIG_ANALYSIS}"
-echo "    LUT:              ${LUT}"
+echo "OK: tracking config, analysis config, metadata LUT, and Stage 7 sessions config all present."
+echo "    tracking_config:        ${CONFIG_TRACKING}"
+echo "    analysis_config:        ${CONFIG_ANALYSIS}"
+echo "    LUT:                     ${LUT}"
+echo "    stage7_sessions_config: ${STAGE7_SESSIONS_CONFIG}"
 
 # 5) Output directories must resolve to MedicineBow, never Alcova.
-case "${OUTPUT_DIR}" in
-    /cluster/alcova/*) echo "FATAL: OUTPUT_DIR points at Alcova (${OUTPUT_DIR}). This job must never write to Alcova. See the STORAGE MODEL note at the top of this file." >&2; exit 1 ;;
-esac
-case "${BOUTS_DIR}" in
-    /cluster/alcova/*) echo "FATAL: BOUTS_DIR points at Alcova (${BOUTS_DIR}). This job must never write to Alcova. See the STORAGE MODEL note at the top of this file." >&2; exit 1 ;;
-esac
+for d_name in OUTPUT_DIR BOUTS_DIR LANDMARK_OUTPUT_DIR; do
+    d_val="${!d_name}"
+    case "${d_val}" in
+        /cluster/alcova/*) echo "FATAL: ${d_name} points at Alcova (${d_val}). This job must never write to Alcova. See the STORAGE MODEL note at the top of this file." >&2; exit 1 ;;
+    esac
+done
 
-mkdir -p "${OUTPUT_DIR}" "${BOUTS_DIR}"
+mkdir -p "${OUTPUT_DIR}" "${BOUTS_DIR}" "${LANDMARK_OUTPUT_DIR}"
 
 echo "------------------------------------------------------------"
 echo "Preflight checks passed. Starting pipeline."
@@ -314,32 +352,32 @@ echo "------------------------------------------------------------"
 # STAGE 1 — Tracking (compute-bound; this is nearly all of the ~1h runtime)
 # =============================================================================
 echo ""
-echo "=== [1/4] batch_track_temperatures.py :: START $(date) ==="
+echo "=== [1/5] batch_track_temperatures.py :: START $(date) ==="
 python scripts/batch_track_temperatures.py \
     --input-dir "${ALCOVA_SEQ_INPUT_DIR}" \
     --config "${CONFIG_TRACKING}" \
     --output-dir "${OUTPUT_DIR}" \
     ${RECURSIVE_FLAG}
-echo "=== [1/4] batch_track_temperatures.py :: END   $(date) ==="
+echo "=== [1/5] batch_track_temperatures.py :: END   $(date) ==="
 
 # =============================================================================
 # STAGE 2 — Bout detection
 # =============================================================================
 echo ""
-echo "=== [2/4] batch_compute_bouts.py :: START $(date) ==="
+echo "=== [2/5] batch_compute_bouts.py :: START $(date) ==="
 python scripts/batch_compute_bouts.py \
     --input-dir "${OUTPUT_DIR}" \
     --config "${CONFIG_ANALYSIS}" \
     --output-dir "${BOUTS_DIR}" \
     --recursive \
     --overwrite
-echo "=== [2/4] batch_compute_bouts.py :: END   $(date) ==="
+echo "=== [2/5] batch_compute_bouts.py :: END   $(date) ==="
 
 # =============================================================================
 # STAGE 3 — Metadata join
 # =============================================================================
 echo ""
-echo "=== [3/4] join_metadata.py :: START $(date) ==="
+echo "=== [3/5] join_metadata.py :: START $(date) ==="
 python scripts/join_metadata.py \
     --tracking-dir "${OUTPUT_DIR}" \
     --bouts-dir "${BOUTS_DIR}" \
@@ -347,26 +385,45 @@ python scripts/join_metadata.py \
     --config "${CONFIG_ANALYSIS}" \
     --output-dir "${BOUTS_DIR}" \
     --overwrite
-echo "=== [3/4] join_metadata.py :: END   $(date) ==="
+echo "=== [3/5] join_metadata.py :: END   $(date) ==="
 
 # =============================================================================
 # STAGE 4 — Treatment-effect analysis
 # =============================================================================
 echo ""
-echo "=== [4/4] analyze_treatment_effects.py :: START $(date) ==="
+echo "=== [4/5] analyze_treatment_effects.py :: START $(date) ==="
 python scripts/analyze_treatment_effects.py \
     --master "${BOUTS_DIR}/master_tracking_with_metadata.csv" \
     --bout-table "${BOUTS_DIR}/bout_table.csv" \
     --config "${CONFIG_ANALYSIS}" \
     --output-dir "${BOUTS_DIR}" \
     --overwrite
-echo "=== [4/4] analyze_treatment_effects.py :: END   $(date) ==="
+echo "=== [4/5] analyze_treatment_effects.py :: END   $(date) ==="
+
+# =============================================================================
+# STAGE 5 — Stage 7 (RGB+thermal registration/landmark measurement)
+# =============================================================================
+# Only runs the sessions listed in stage7_sessions_config.json (Test_3/4/7 x
+# Front/Back as of 2026-10-01) — see the header comment at the top of this
+# file and that config's own "_comment" for why the other homography-covered
+# sessions aren't in it yet. --sessions is deliberately omitted below so this
+# always runs every session the config lists, not a hardcoded subset here.
+echo ""
+echo "=== [5/5] stage7_real_run.py :: START $(date) ==="
+python scripts/stage7_real_run.py \
+    --sessions-config "${STAGE7_SESSIONS_CONFIG}" \
+    --repo-dir "${REPO_DIR}" \
+    --thermal-seq-root "${ALCOVA_SEQ_INPUT_DIR}" \
+    --rgb-video-root "${ALCOVA_RGB_VIDEO_DIR}" \
+    --output-dir "${LANDMARK_OUTPUT_DIR}"
+echo "=== [5/5] stage7_real_run.py :: END   $(date) ==="
 
 echo ""
 echo "============================================================"
 echo "Pipeline complete: $(date)"
 echo "Tracking outputs:      ${OUTPUT_DIR}"
 echo "Bout/analysis outputs: ${BOUTS_DIR}"
+echo "Landmark outputs:      ${LANDMARK_OUTPUT_DIR}"
 echo ""
 echo "These outputs are on MedicineBow storage ONLY. This job does NOT copy"
 echo "them back to Alcova. That is a separate, human-run step — see"

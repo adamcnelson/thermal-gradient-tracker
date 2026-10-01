@@ -10,6 +10,12 @@ import cv2
 import numpy as np
 import pandas as pd
 
+from src import paths
+from src.analysis_config import AnalysisConfig
+from src.bouts import classify_stationary
+from src.velocity import compute_velocity
+from src.logging_utils import setup_logger
+from scripts.compute_bouts import _get_thresholds
 from src.seq_io import SeqReader, read_planck_constants, raw_to_celsius
 from src.landmarks.bout_gating import iter_stationary_bouts, filter_bouts_after_entry
 from src.landmarks.webcam_preprocessing import split_track_crops, detect_track_split_row, LANE_TOP
@@ -79,149 +85,58 @@ MAX_PRUNE_PX = 10  # tolerate short spurious skeleton branches (segmentation noi
                     # extended samples -- deliberately conservative, does not rescue
                     # genuinely hunched/curled-with-tail-out bodies.
 
-# Sync results are per-SESSION, not per-lane (Front/Back share the same physical
-# camera clocks -- confirmed via identical Front.seq/Back.seq frame counts, see
-# [[project-v7-back-lane-expansion]]), so each is defined once and reused for
-# both the Front and Back SESSIONS entries below rather than redefined.
-SYNC_RESULT_TEST_3 = WindowedSyncResult(
-    window_centers_sec=np.array([]), window_lags_sec=np.array([]),
-    offset_sec=-2.8, drift_slope=0.0, r_squared=0.999, residual_max_sec=0.2,
-    low_confidence=False,
-    confidence_note=(
-        "resolved 2026-08-25: 5 real, human-verified anchor events spanning the full "
-        "session (t=46-2261s thermal), fit AFTER discovering and correcting the "
-        "camera_fps 8->10 error (see project memory) -- offset is now a clean constant "
-        "(std=0.13s across all 5 anchors), no drift term needed. Supersedes the earlier "
-        "-93.0/drift=0 value, which was compensating for the fps error, not real RGB/"
-        "thermal clock drift. These anchors were all found on the FRONT lane; reused "
-        "unchanged for Back (2026-08-28) since Front.seq/Back.seq are the same recording."
-    ),
-)
-SYNC_RESULT_TEST_4 = WindowedSyncResult(
-    window_centers_sec=np.array([]), window_lags_sec=np.array([]),
-    offset_sec=5.5, drift_slope=0.0, r_squared=0.995, residual_max_sec=0.5,
-    low_confidence=False,
-    confidence_note=(
-        "resolved 2026-08-25: 4 real, human-verified anchor events spanning the full "
-        "session (t=94-1615s thermal), fit AFTER discovering and correcting the "
-        "camera_fps 8->10 error (see project memory) -- offset is now a clean constant "
-        "(std=0.46s across all 4 anchors), no drift term needed. Supersedes the earlier "
-        "low-confidence +11.0 value, which was itself compensating for the fps error on "
-        "top of the real offset, not a genuinely unresolved sync. These anchors were all "
-        "found on the FRONT lane; reused unchanged for Back (2026-08-28) since "
-        "Front.seq/Back.seq are the same recording."
-    ),
-)
-SYNC_RESULT_TEST_7 = WindowedSyncResult(
-    window_centers_sec=np.array([]), window_lags_sec=np.array([]),
-    offset_sec=-0.51, drift_slope=0.0, r_squared=0.9999, residual_max_sec=0.5,
-    low_confidence=False,
-    confidence_note=(
-        "resolved 2026-08-26: 4 real, human-verified anchor events spanning the full "
-        "session (t=28-1588s thermal). fps was already 10.0 in this session's tracking "
-        "data (unlike Test_3/4, no fps correction was needed here -- confirmed via these "
-        "same anchors: slope=1.00002, implied fps=10.0002). Offset resolved to a tiny "
-        "near-zero constant, no drift. Homography orientation was separately disputed and "
-        "resolved: Adam's direct video review initially flagged a Test_4-style 180-degree "
-        "rotation, but a precise same-real-moment overlay (both centroid AND full mouse "
-        "silhouette, warped through the as-clicked calibration) landed almost exactly on "
-        "the real thermal mouse blob including head/tail orientation -- the as-clicked "
-        "(unmirrored) calibration was confirmed correct; raw RGB-vs-thermal frames are "
-        "just genuinely hard to compare by eye given the real vertical flip + differing "
-        "resolution/aspect ratio + the homography's own rotation/perspective terms. These "
-        "anchors were all found on the FRONT lane; reused unchanged for Back (2026-08-28) "
-        "since Front.seq/Back.seq are the same recording."
-    ),
-)
+# Per-session config (homography/tracking/bouts paths, entry time, sync offset)
+# used to live here as a hardcoded dict pointing at one developer's local Mac
+# paths -- moved to the committed stage7_sessions_config.json (2026-10-01, "wire
+# Stage 7 into Stage7+SLURM") so this script can run unmodified on MedicineBow,
+# matching every other pipeline stage's convention of taking paths as CLI
+# arguments rather than hardcoding a machine-specific one. See that file's
+# "_comment" for why only Test_3/4/7 (x Front/Back) are in it: Stage 7 needs a
+# human-verified sync_result/entry_time, not just a homography, and that work
+# hasn't been done yet for the other ~35 homography-covered sessions (see
+# project memory project_v8_homography_hybrid_calibration.md).
+DEFAULT_SESSIONS_CONFIG = str(Path(__file__).resolve().parent.parent / "stage7_sessions_config.json")
 
-SESSIONS = {
-    "Test_3": dict(
-        session_label="07-28-25_4540_B_4541_F_Test3-004",
-        thermal_seq="/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/croppedSeqFiles/07-28-25_Test_3/07-28-25_4540_B_4541_F_Test3-004_Front.seq",
-        rgb_video="/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/Process_Jason/07-28-25_Test_3/2025-07-28_10-57-21.mp4",
-        homography_json="homography_calibration/07-28-25_4540_B_4541_F_Test3-004_Front_homography.json",
-        tracking_csv="trackingOutputs/07-28-25_4540_B_4541_F_Test3-004_Front_tracking_every10frames.csv",
-        bouts_csv="bouts/qc_plots/07-28-25_4540_B_4541_F_Test3-004_Front_bout_rows.csv",
-        mouse_id=4541,
-        track="F",
-        entry_time_thermal_sec=34.85,  # RGB-confirmed entry (32.05s) converted via offset -2.8s (post camera_fps 8->10 fix)
-        sync_result=SYNC_RESULT_TEST_3,
-    ),
-    "Test_4": dict(
-        session_label="07-30-25_4540_F_4541_B_Test4-008",
-        thermal_seq="/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/croppedSeqFiles/07-30-25_Test_4/07-30-25_4540_F_4541_B_Test4-008_Front.seq",
-        rgb_video="/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/Process_Jason/07-30-25_Test_4/2025-07-30_10-44-05.mp4",
-        homography_json="homography_calibration/07-30-25_4540_F_4541_B_Test4-008_Front_homography.json",
-        tracking_csv="trackingOutputs/07-30-25_4540_F_4541_B_Test4-008_Front_tracking_every10frames.csv",
-        bouts_csv="bouts/qc_plots/07-30-25_4540_F_4541_B_Test4-008_Front_bout_rows.csv",
-        mouse_id=4540,
-        track="F",
-        entry_time_thermal_sec=77.33,  # RGB-confirmed entry (82.83s) converted via offset +5.5s (post camera_fps 8->10 fix)
-        sync_result=SYNC_RESULT_TEST_4,
-    ),
-    "Test_7": dict(
-        session_label="08-07-25_4541_F_4540_B_Test7-020",
-        thermal_seq="/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/croppedSeqFiles/08-07-25_Test_7/08-07-25_4541_F_4540_B_Test7-020_Front.seq",
-        rgb_video="/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/Process_Jason/08-07-25_Test_7/2025-08-07_10-54-09.mp4",
-        homography_json="homography_calibration/08-07-25_4541_F_4540_B_Test7-020_Front_homography.json",
-        tracking_csv="trackingOutputs/08-07-25_4541_F_4540_B_Test7-020_Front_tracking_every10frames.csv",
-        bouts_csv="bouts/qc_plots/08-07-25_4541_F_4540_B_Test7-020_Front_bout_rows.csv",
-        mouse_id=4541,
-        track="F",
-        entry_time_thermal_sec=28.0,  # RGB-confirmed touchdown (27s) converted via offset -0.51s
-        sync_result=SYNC_RESULT_TEST_7,
-    ),
-    # ── Back lane, added 2026-08-28 (Adam: "wire Back into stage7_real_run.py") ──
-    # Front.seq/Back.seq confirmed to be the SAME underlying recording for all 3
-    # sessions (identical frame counts, verified via SeqReader -- see
-    # [[project-v7-back-lane-expansion]]), so camera_fps and the RGB<->thermal
-    # sync_result established for Front apply directly and are reused unchanged
-    # below -- NOT re-derived, deliberately. Each session's Back homography was
-    # independently calibrated and validated via validate_homography_orientation.py
-    # (all 3 confirmed as-clicked correct, real margins 4-25px vs 67-159px mirrored
-    # -- see project memory). entry_time_thermal_sec below is the Stage 1/2
-    # AUTO-DETECTED value (tracking_config's auto_detect_tracking_start), NOT a
-    # human-verified real anchor like the Front lanes' entry times -- a real,
-    # lower-confidence input than Front's, not yet upgraded.
-    "Test_3_Back": dict(
-        session_label="07-28-25_4540_B_4541_F_Test3-004",
-        thermal_seq="/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/croppedSeqFiles/07-28-25_Test_3/07-28-25_4540_B_4541_F_Test3-004_Back.seq",
-        rgb_video="/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/Process_Jason/07-28-25_Test_3/2025-07-28_10-57-21.mp4",
-        homography_json="homography_calibration/07-28-25_4540_B_4541_F_Test3-004_Back_homography.json",
-        tracking_csv="trackingOutputs/07-28-25_4540_B_4541_F_Test3-004_Back_tracking_every10frames.csv",
-        bouts_csv="bouts/qc_plots/07-28-25_4540_B_4541_F_Test3-004_Back_bout_rows.csv",
-        mouse_id=4540,
-        track="B",
-        entry_time_thermal_sec=71.0,  # auto-detected (Stage 1/2), not a verified anchor -- see note above
-        sync_result=SYNC_RESULT_TEST_3,
-    ),
-    "Test_4_Back": dict(
-        session_label="07-30-25_4540_F_4541_B_Test4-008",
-        thermal_seq="/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/croppedSeqFiles/07-30-25_Test_4/07-30-25_4540_F_4541_B_Test4-008_Back.seq",
-        rgb_video="/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/Process_Jason/07-30-25_Test_4/2025-07-30_10-44-05.mp4",
-        homography_json="homography_calibration/07-30-25_4540_F_4541_B_Test4-008_Back_homography.json",
-        tracking_csv="trackingOutputs/07-30-25_4540_F_4541_B_Test4-008_Back_tracking_every10frames.csv",
-        bouts_csv="bouts/qc_plots/07-30-25_4540_F_4541_B_Test4-008_Back_bout_rows.csv",
-        mouse_id=4541,
-        track="B",
-        entry_time_thermal_sec=81.0,  # auto-detected (Stage 1/2), not a verified anchor -- see note above
-        sync_result=SYNC_RESULT_TEST_4,
-    ),
-    "Test_7_Back": dict(
-        session_label="08-07-25_4541_F_4540_B_Test7-020",
-        thermal_seq="/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/croppedSeqFiles/08-07-25_Test_7/08-07-25_4541_F_4540_B_Test7-020_Back.seq",
-        rgb_video="/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/Process_Jason/08-07-25_Test_7/2025-08-07_10-54-09.mp4",
-        homography_json="homography_calibration/08-07-25_4541_F_4540_B_Test7-020_Back_homography.json",
-        tracking_csv="trackingOutputs/08-07-25_4541_F_4540_B_Test7-020_Back_tracking_every10frames.csv",
-        bouts_csv="bouts/qc_plots/08-07-25_4541_F_4540_B_Test7-020_Back_bout_rows.csv",
-        mouse_id=4540,
-        track="B",
-        entry_time_thermal_sec=132.0,  # auto-detected (Stage 1/2), not a verified anchor -- see note above
-        sync_result=SYNC_RESULT_TEST_7,
-    ),
-}
 
-REPO = "/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/thermal-gradient-tracker"
+def load_sessions(config_path: str, repo_dir: Path, thermal_seq_root: Path, rgb_video_root: Path) -> dict:
+    raw = json.load(open(config_path))
+    sessions = {}
+    for name, entry in raw.items():
+        if name.startswith("_"):
+            continue  # "_comment" and similar -- not a session
+        sr = entry["sync_result"]
+        sync_result = WindowedSyncResult(
+            window_centers_sec=np.array([]), window_lags_sec=np.array([]),
+            offset_sec=sr["offset_sec"], drift_slope=sr["drift_slope"],
+            r_squared=sr["r_squared"], residual_max_sec=sr["residual_max_sec"],
+            low_confidence=sr["low_confidence"], confidence_note=sr["confidence_note"],
+        )
+        sessions[name] = dict(
+            session_label=entry["session_label"],
+            thermal_seq=str(thermal_seq_root / entry["thermal_seq_relpath"]),
+            rgb_video=str(rgb_video_root / entry["rgb_video_relpath"]),
+            homography_json=str(repo_dir / entry["homography_json"]),
+            tracking_csv=str(repo_dir / entry["tracking_csv"]),
+            bouts_csv=str(repo_dir / entry["bouts_csv"]),
+            mouse_id=entry["mouse_id"],
+            track=entry["track"],
+            entry_time_thermal_sec=entry["entry_time_thermal_sec"],
+            sync_result=sync_result,
+        )
+    return sessions
+
+
+# Defaults preserve this script's original interactive behavior (one developer's
+# local Mac paths) so existing importers -- qc_shared.py and the render_*_qc.py
+# QC scripts, which import module-level SESSIONS/REPO directly -- keep working
+# unchanged. SLURM/MedicineBow usage overrides these via __main__'s CLI args
+# instead of relying on this default.
+DEFAULT_REPO_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_THERMAL_SEQ_ROOT = Path("/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/croppedSeqFiles")
+DEFAULT_RGB_VIDEO_ROOT = Path("/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/Process_Jason")
+REPO = str(DEFAULT_REPO_DIR)
+SESSIONS = load_sessions(DEFAULT_SESSIONS_CONFIG, DEFAULT_REPO_DIR, DEFAULT_THERMAL_SEQ_ROOT, DEFAULT_RGB_VIDEO_ROOT)
+
 THERMAL_FPS = 10.0  # true rate for Test_3/Test_4/Test_7 post camera_fps 8->10 fix (2026-08-25/26) --
                      # bout times (thermal_t) come from elapsed_time_sec, which is now genuinely
                      # frame_idx/10.0 for all three sessions; using 8.0 here would silently read
@@ -377,7 +292,169 @@ def local_edge_refine(thermal_celsius, warped_mask, search_px=LOCAL_EDGE_REFINE_
     return 0, 0, False, base_score, best_score
 
 
-def process_session(name, cfg):
+def measure_one_sample(
+    *, bout_index, thermal_t, stationary, thermal_frames, sync_result, cap, rgb_fps, total_rgb,
+    split_row, track, bg_model, H, thermal_native_lookup, homography_rmse, session_label,
+):
+    """
+    One sample's full segment -> register -> measure -> gate pipeline, shared by both the
+    stationary-bout sampling schedule and the non-stationary sampling schedule
+    (project_brief_v8.md §3.1) -- extracted 2026-09-01 from what used to be
+    process_session()'s only per-sample loop body, so the new non-stationary pass reuses
+    this exactly rather than reimplementing the measurement logic (brief's explicit
+    instruction: "reuse the same per-sample function ... don't reimplement the measurement
+    logic, just the sampling schedule").
+
+    Returns (rec, frame_row): rec is the dict process_session() aggregates into bout_output
+    rows (bout_index=None for a non-stationary sample, so it's naturally excluded from every
+    bout's aggregation); frame_row is a FrameOutputRow, or None if no thermal frame / RGB
+    frame was available at all (nothing to record, not even a failed attempt).
+    """
+    thermal_idx = int(round(thermal_t * THERMAL_FPS))
+    thermal_celsius = thermal_frames.get(thermal_idx)
+    rec = dict(bout_index=bout_index, thermal_t=thermal_t, thermal_idx=thermal_idx, stationary=stationary)
+    if thermal_celsius is None:
+        rec["fail"] = "no thermal frame"
+        return rec, None
+
+    rgb_t = thermal_time_to_rgb_time(thermal_t, sync_result)
+    rgb_frame_idx = int(round(rgb_t * rgb_fps))
+    if not (0 <= rgb_frame_idx < total_rgb):
+        rec["fail"] = "rgb time out of video range"
+        return rec, None
+    cap.set(cv2.CAP_PROP_POS_FRAMES, rgb_frame_idx)
+    ok, frame = cap.read()
+    if not ok:
+        rec["fail"] = "rgb read failed"
+        return rec, None
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    top, bottom = split_track_crops(gray, split_row=split_row)
+    crop = top if track == LANE_TOP else bottom
+
+    mask = segment_mouse_rgb(crop, bg_model, min_area=MIN_AREA, max_area=MAX_AREA)
+    if mask is None:
+        rec["fail"] = "no mouse blob segmented"
+        return rec, None
+    # See the real, measured rationale for a separate stricter mask in the
+    # module docstring above DORSAL_STRICT_SIGMA's definition.
+    dorsal_mask_source = segment_mouse_rgb(crop, bg_model, min_area=MIN_AREA, max_area=MAX_AREA,
+                                            threshold_sigma=DORSAL_STRICT_SIGMA)
+    if dorsal_mask_source is None:
+        dorsal_mask_source = mask
+    detection = extract_mouse_detection(mask, MIN_AREA, MAX_AREA, max_prune_px=MAX_PRUNE_PX)
+    if detection is None:
+        rec["fail"] = "rejected as debris-scale"
+        rec["posture"] = None
+        return rec, None
+    posture = detection.posture
+    lm = detection.landmarks
+    tail_lm = detection.tail_landmarks  # only set for non-"extended" postures
+
+    if posture != "extended" and tail_lm is None:
+        rec["fail"] = (
+            "ambiguous posture, no tail found" if posture == "ambiguous"
+            else "curled posture, no tail found"
+        )
+        rec["posture"] = posture
+        return rec, None
+
+    thermal_native_xy = thermal_native_lookup(thermal_t)
+    H_sample, correction = registration_correction_homography(H, mask, thermal_celsius.shape, thermal_native_xy)
+    correction_px = float(np.hypot(*correction)) if correction is not None else None
+    rec["registration_correction_px"] = correction_px
+    rec["registration_low_confidence"] = bool(
+        correction_px is not None and correction_px > REGISTRATION_LOW_CONFIDENCE_PX)
+
+    warped_animal = warp_mask_to_thermal(mask, H_sample, thermal_celsius.shape)
+
+    edge_dx, edge_dy, edge_improved, _, _ = local_edge_refine(thermal_celsius, warped_animal)
+    rec["local_edge_refined"] = edge_improved
+    if edge_improved:
+        T_edge = np.array([[1, 0, edge_dx], [0, 1, edge_dy], [0, 0, 1]], dtype=np.float64)
+        H_sample = T_edge @ H_sample
+        warped_animal = warp_mask_to_thermal(mask, H_sample, thermal_celsius.shape)
+
+    if posture == "extended":
+        anterior = anterior_region_mask(dorsal_mask_source, lm.path_nose_to_tail[: lm.tail_base_index + 1])
+        dorsal = dorsal_surface_mask(dorsal_mask_source, lm.path_nose_to_tail, lm.tail_base_index)
+        prox_tail = proximal_tail_points(lm.tail_centerline)
+        warped_anterior = warp_mask_to_thermal(anterior, H_sample, thermal_celsius.shape)
+        warm_spot = warm_spot_temperature(thermal_celsius, warped_anterior)
+        nose_xy = apply_homography(H_sample, np.array([[lm.nose_point[1], lm.nose_point[0]]]))[0]
+        tb_xy = apply_homography(H_sample, np.array([[lm.tail_base_point[1], lm.tail_base_point[0]]]))[0]
+    else:
+        # Tail-only fallback -- see find_tail_appendage(); warm-spot/dorsal-anterior stay
+        # inapplicable (project-v7-stage5-bakeoff Finding #2), tail-ΔT does not share that
+        # requirement.
+        dorsal = dorsal_mask_source  # whole-animal mean/median still applies (Adam's own added metric)
+        warm_spot = None
+        prox_tail = proximal_tail_points(tail_lm.tail_centerline)
+        nose_xy = tb_xy = None
+
+    tail_meas = tail_base_delta_t(
+        thermal_celsius, H_sample, prox_tail,
+        sample_radius_px=SAMPLE_RADIUS_PX,
+        floor_inner_radius_px=FLOOR_INNER_RADIUS_PX,
+        floor_outer_radius_px=FLOOR_OUTER_RADIUS_PX,
+        animal_mask_thermal=warped_animal,
+    )
+
+    warped_dorsal = warp_mask_to_thermal(dorsal, H_sample, thermal_celsius.shape)
+    dorsal_meas = dorsal_surface_temperature(thermal_celsius, warped_dorsal)
+
+    landmark_confidence = 1.0 if posture == "extended" else 0.7
+    # posture_ok gates the WHOLE row's qc_valid -- see the real rationale in
+    # process_session()'s original inline comment (project history), unchanged here.
+    posture_ok = (posture == "extended") or (tail_lm is not None)
+    qc_valid, qc_reasons = gate_measurement(
+        delta_t_c=tail_meas.delta_t_c,
+        landmark_confidence=landmark_confidence,
+        sync_qc_pass=True,
+        homography_qc_pass=homography_rmse < 2.0,
+        posture_ok=posture_ok,
+    )
+
+    rec.update(
+        rgb_frame_idx=rgb_frame_idx,
+        posture=posture,
+        warm_spot_temp_c=warm_spot,
+        dorsal_mean_c=dorsal_meas.mean_c,
+        dorsal_median_c=dorsal_meas.median_c,
+        dorsal_pixel_count=dorsal_meas.pixel_count,
+        tail_temp_c=tail_meas.tail_temp_c,
+        tail_floor_temp_c=tail_meas.floor_temp_c,
+        tail_delta_t_c=tail_meas.delta_t_c,
+        qc_valid=qc_valid,
+        qc_reasons=qc_reasons,
+    )
+
+    tail_base_rgb_xy = lm.tail_base_point if posture == "extended" else (
+        tail_lm.tail_base_point if tail_lm is not None else None
+    )
+    frame_row = FrameOutputRow(
+        session=session_label,
+        track=track,
+        frame_number=thermal_idx,
+        elapsed_time_thermal_sec=thermal_t,
+        nose_rgb_xy=lm.nose_point if posture == "extended" else None,
+        tail_base_rgb_xy=tail_base_rgb_xy,
+        nose_thermal_xy=tuple(nose_xy) if nose_xy is not None else None,
+        tail_base_thermal_xy=tuple(tb_xy) if tb_xy is not None else None,
+        mouse_surface_temp_mean_c=dorsal_meas.mean_c,
+        floor_temp_mean_c=tail_meas.floor_temp_c,
+        qc_flag="ok" if qc_valid else "; ".join(qc_reasons),
+        posture=posture,
+        warm_spot_temp_c=warm_spot,
+        tail_delta_t_c=tail_meas.delta_t_c,
+        stationary=stationary,
+        sync_low_confidence=sync_result.low_confidence,
+        registration_low_confidence=rec["registration_low_confidence"],
+        local_edge_refined=rec["local_edge_refined"],
+    )
+    return rec, frame_row
+
+
+def process_session(name, cfg, output_dir):
     t_start = time.time()
     print(f"\n=== {name} ===", flush=True)
 
@@ -387,13 +464,9 @@ def process_session(name, cfg):
     n_dropped_pre_entry = len(bouts_df_raw) - len(bouts_df)
     print(f"pre-entry filter: entry_time={cfg['entry_time_thermal_sec']:.2f}s thermal-clock, "
           f"dropped {n_dropped_pre_entry}/{len(bouts_df_raw)} bouts", flush=True)
-    H, homography_rmse = load_homography(f"{REPO}/{cfg['homography_json']}"), None
-    import json as _json
-    homography_rmse = _json.load(open(f"{REPO}/{cfg['homography_json']}"))["rmse_px"]
+    H = load_homography(cfg["homography_json"])
+    homography_rmse = json.load(open(cfg["homography_json"]))["rmse_px"]
     thermal_native_lookup = build_thermal_native_lookup(tracking_df)
-    n_corrected = 0
-    correction_mags = []
-    n_edge_refined = 0
 
     sync_result = cfg["sync_result"]
 
@@ -405,8 +478,32 @@ def process_session(name, cfg):
             bout_frame_plan.append((int(bout["bout_index"]), b0 + frac * (b1 - b0)))
     print(f"bouts with valid frames: {bouts_df['bout_index'].nunique()} planned samples: {len(bout_frame_plan)}", flush=True)
 
+    # ---- non-stationary sampling plan (project_brief_v8.md §3.1) ----
+    # Same "stationary" classification the legacy pipeline uses (compute_velocity +
+    # classify_stationary, same analysis_config.json thresholds -- src/bouts.py is reused
+    # as-is, not reimplemented). tracking_csv is already at a fixed ~1Hz cadence (confirmed:
+    # elapsed_time_sec spacing is exactly 1.0s), which matches compute_rgb_track.py's
+    # established 1Hz sampling-rate convention, so no separate resampling is needed --
+    # every eligible (qc-ok, post-entry, non-stationary) row IS a sample point.
+    log = setup_logger("stage7_real_run")
+    analysis_config = AnalysisConfig.load(str(paths.DEFAULT_ANALYSIS_CONFIG))
+    disp_thresh, vel_thresh = _get_thresholds(analysis_config, log)
+    vel_df = compute_velocity(tracking_df, analysis_config.bouts)
+    stationary_mask = classify_stationary(vel_df, disp_thresh, vel_thresh)
+    qc_ok = vel_df["qc_flag"] == "ok"
+    roi_valid = vel_df["mouse_roi_valid"].astype(str) == "True"
+    post_entry = vel_df["elapsed_time_sec"] >= cfg["entry_time_thermal_sec"]
+    nonstationary_rows = vel_df[qc_ok & roi_valid & post_entry & ~stationary_mask]
+    nonstationary_plan = [float(t) for t in nonstationary_rows["elapsed_time_sec"]]
+    print(f"non-stationary eligible samples (1Hz, qc-ok, post-entry): {len(nonstationary_plan)}", flush=True)
+
+    sample_plan = (
+        [(bi, t, True) for bi, t in bout_frame_plan]
+        + [(None, t, False) for t in nonstationary_plan]
+    )
+
     # ---- one sequential pass through the thermal .seq, grab target frames ----
-    thermal_idx_wanted = sorted({int(round(t * THERMAL_FPS)) for _, t in bout_frame_plan})
+    thermal_idx_wanted = sorted({int(round(t * THERMAL_FPS)) for _, t, _ in sample_plan})
     idx_set = set(thermal_idx_wanted)
     planck = read_planck_constants(cfg["thermal_seq"])
     thermal_frames = {}
@@ -444,201 +541,31 @@ def process_session(name, cfg):
     per_sample = []
     frame_rows = []
     t0 = time.time()
-    for bout_index, thermal_t in bout_frame_plan:
-        thermal_idx = int(round(thermal_t * THERMAL_FPS))
-        thermal_celsius = thermal_frames.get(thermal_idx)
-        rec = dict(bout_index=bout_index, thermal_t=thermal_t, thermal_idx=thermal_idx)
-        if thermal_celsius is None:
-            rec["fail"] = "no thermal frame"
-            per_sample.append(rec)
-            continue
-
-        rgb_t = thermal_time_to_rgb_time(thermal_t, sync_result)
-        rgb_frame_idx = int(round(rgb_t * rgb_fps))
-        if not (0 <= rgb_frame_idx < total_rgb):
-            rec["fail"] = "rgb time out of video range"
-            per_sample.append(rec)
-            continue
-        cap.set(cv2.CAP_PROP_POS_FRAMES, rgb_frame_idx)
-        ok, frame = cap.read()
-        if not ok:
-            rec["fail"] = "rgb read failed"
-            per_sample.append(rec)
-            continue
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        top, bottom = split_track_crops(gray, split_row=split_row)
-        crop = top if cfg["track"] == LANE_TOP else bottom
-
-        mask = segment_mouse_rgb(crop, bg_model, min_area=MIN_AREA, max_area=MAX_AREA)
-        if mask is None:
-            rec["fail"] = "no mouse blob segmented"
-            per_sample.append(rec)
-            continue
-        # Real fix, 2026-08-27 (Adam: mask visibly bigger than the mouse in
-        # measurement_location_qc images). Confirmed via a 180-frame survey
-        # that the default threshold_sigma=3.0 mask is ~35-45% larger in
-        # area than a strict high-confidence-core mask in EVERY session, a
-        # soft motion-blur/shadow penumbra the global mean+3*std threshold
-        # admits. Tried raising threshold_sigma / trimming morphology
-        # globally first -- real measured cost: sigma 3.0->3.5 alone loses
-        # 37% of already-hard-won tail-appendage detections (22/60) for only
-        # a 6% area reduction, because the tail is itself a thin, low-
-        # contrast structure indistinguishable from the halo by a single
-        # global threshold. So: keep `mask` (loose, sigma=3.0) for posture
-        # classification and tail-finding exactly as before -- don't
-        # regress the yield fixed in find_tail_appendage() -- and compute a
-        # SEPARATE, stricter mask used only for the dorsal/warm-spot
-        # boundary, where a tight silhouette is what was actually wanted.
-        # sigma=6.0 chosen from the same survey (0/182 frames returned None,
-        # area never collapsed toward MIN_AREA); visually confirmed on the
-        # two frames Adam flagged as oversized -- the strict mask hugs the
-        # real dark silhouette while the loose mask's boundary visibly
-        # extended into the shadow/floor.
-        dorsal_mask_source = segment_mouse_rgb(crop, bg_model, min_area=MIN_AREA, max_area=MAX_AREA,
-                                                threshold_sigma=DORSAL_STRICT_SIGMA)
-        if dorsal_mask_source is None:
-            dorsal_mask_source = mask
-        detection = extract_mouse_detection(mask, MIN_AREA, MAX_AREA, max_prune_px=MAX_PRUNE_PX)
-        if detection is None:
-            rec["fail"] = "rejected as debris-scale"
-            rec["posture"] = None
-            per_sample.append(rec)
-            continue
-        posture = detection.posture
-        lm = detection.landmarks
-        tail_lm = detection.tail_landmarks  # only set for non-"extended" postures
-
-        if posture != "extended" and tail_lm is None:
-            # Real, total loss -- no whole-body decomposition AND no
-            # separately-resolvable tail either (e.g. a genuinely tucked
-            # curl). Nothing measurable at all for this sample.
-            rec["fail"] = (
-                "ambiguous posture, no tail found" if posture == "ambiguous"
-                else "curled posture, no tail found"
-            )
-            rec["posture"] = posture
-            per_sample.append(rec)
-            continue
-
-        thermal_native_xy = thermal_native_lookup(thermal_t)
-        H_sample, correction = registration_correction_homography(H, mask, thermal_celsius.shape, thermal_native_xy)
-        if correction is not None:
-            n_corrected += 1
-            correction_mags.append(float(np.hypot(*correction)))
-        correction_px = float(np.hypot(*correction)) if correction is not None else None
-        rec["registration_correction_px"] = correction_px
-        rec["registration_low_confidence"] = bool(
-            correction_px is not None and correction_px > REGISTRATION_LOW_CONFIDENCE_PX)
-
-        warped_animal = warp_mask_to_thermal(mask, H_sample, thermal_celsius.shape)
-
-        edge_dx, edge_dy, edge_improved, _, _ = local_edge_refine(thermal_celsius, warped_animal)
-        rec["local_edge_refined"] = edge_improved
-        if edge_improved:
-            n_edge_refined += 1
-            T_edge = np.array([[1, 0, edge_dx], [0, 1, edge_dy], [0, 0, 1]], dtype=np.float64)
-            H_sample = T_edge @ H_sample
-            warped_animal = warp_mask_to_thermal(mask, H_sample, thermal_celsius.shape)
-
-        if posture == "extended":
-            anterior = anterior_region_mask(dorsal_mask_source, lm.path_nose_to_tail[: lm.tail_base_index + 1])
-            dorsal = dorsal_surface_mask(dorsal_mask_source, lm.path_nose_to_tail, lm.tail_base_index)
-            prox_tail = proximal_tail_points(lm.tail_centerline)
-            warped_anterior = warp_mask_to_thermal(anterior, H_sample, thermal_celsius.shape)
-            warm_spot = warm_spot_temperature(thermal_celsius, warped_anterior)
-            nose_xy = apply_homography(H_sample, np.array([[lm.nose_point[1], lm.nose_point[0]]]))[0]
-            tb_xy = apply_homography(H_sample, np.array([[lm.tail_base_point[1], lm.tail_base_point[0]]]))[0]
-        else:
-            # Tail-only fallback (2026-08-26, see find_tail_appendage()):
-            # warm-spot/dorsal-anterior genuinely need the whole-body
-            # straight-line decomposition (anterior_region_mask() would
-            # warp nonsense for a hunched/curled body -- see
-            # project-v7-stage5-bakeoff Finding #2) so those stay
-            # inapplicable here, exactly as before. Tail-ΔT does not
-            # share that requirement -- tail_base_delta_t() only ever
-            # consumes proximal_tail_points_rgb, so a real, separately-
-            # resolved tail appendage is sufficient on its own.
-            dorsal = dorsal_mask_source  # whole-animal mean/median still applies (Adam's own added metric)
-            warm_spot = None
-            prox_tail = proximal_tail_points(tail_lm.tail_centerline)
-            nose_xy = tb_xy = None
-
-        tail_meas = tail_base_delta_t(
-            thermal_celsius, H_sample, prox_tail,
-            sample_radius_px=SAMPLE_RADIUS_PX,
-            floor_inner_radius_px=FLOOR_INNER_RADIUS_PX,
-            floor_outer_radius_px=FLOOR_OUTER_RADIUS_PX,
-            animal_mask_thermal=warped_animal,
-        )
-
-        warped_dorsal = warp_mask_to_thermal(dorsal, H_sample, thermal_celsius.shape)
-        dorsal_meas = dorsal_surface_temperature(thermal_celsius, warped_dorsal)
-
-        if posture == "extended":
-            landmark_confidence = 1.0
-        else:
-            landmark_confidence = 0.7  # real tail found via fallback, but no whole-body cross-check
-        # posture_ok gates the WHOLE row's qc_valid, but the only real
-        # measurement at stake for a non-"extended" row is tail-ΔT (warm_spot
-        # is already None here) -- so a real, found tail_landmarks fallback
-        # satisfies the intent of "posture ok for the measurement being
-        # gated", even though the animal's overall body posture is not
-        # "extended". Brief's "posture is not curled/rearing" language was
-        # written before this fallback existed; this is a deliberate,
-        # scoped reinterpretation for tail-ΔT specifically, not a loosening
-        # of warm-spot/dorsal-anterior gating (which remains untouched).
-        posture_ok = (posture == "extended") or (tail_lm is not None)
-        qc_valid, qc_reasons = gate_measurement(
-            delta_t_c=tail_meas.delta_t_c,
-            landmark_confidence=landmark_confidence,
-            sync_qc_pass=True,
-            homography_qc_pass=homography_rmse < 2.0,
-            posture_ok=posture_ok,
-        )
-
-        rec.update(
-            rgb_frame_idx=rgb_frame_idx,
-            posture=posture,
-            warm_spot_temp_c=warm_spot,
-            dorsal_mean_c=dorsal_meas.mean_c,
-            dorsal_median_c=dorsal_meas.median_c,
-            dorsal_pixel_count=dorsal_meas.pixel_count,
-            tail_temp_c=tail_meas.tail_temp_c,
-            tail_floor_temp_c=tail_meas.floor_temp_c,
-            tail_delta_t_c=tail_meas.delta_t_c,
-            qc_valid=qc_valid,
-            qc_reasons=qc_reasons,
+    for bout_index, thermal_t, stationary in sample_plan:
+        rec, frame_row = measure_one_sample(
+            bout_index=bout_index, thermal_t=thermal_t, stationary=stationary,
+            thermal_frames=thermal_frames, sync_result=sync_result, cap=cap,
+            rgb_fps=rgb_fps, total_rgb=total_rgb, split_row=split_row, track=cfg["track"],
+            bg_model=bg_model, H=H, thermal_native_lookup=thermal_native_lookup,
+            homography_rmse=homography_rmse, session_label=cfg["session_label"],
         )
         per_sample.append(rec)
-
-        tail_base_rgb_xy = lm.tail_base_point if posture == "extended" else (
-            tail_lm.tail_base_point if tail_lm is not None else None
-        )
-        frame_rows.append(FrameOutputRow(
-            session=cfg["session_label"],
-            track=cfg["track"],
-            frame_number=thermal_idx,
-            elapsed_time_thermal_sec=thermal_t,
-            nose_rgb_xy=lm.nose_point if posture == "extended" else None,
-            tail_base_rgb_xy=tail_base_rgb_xy,
-            nose_thermal_xy=tuple(nose_xy) if nose_xy is not None else None,
-            tail_base_thermal_xy=tuple(tb_xy) if tb_xy is not None else None,
-            mouse_surface_temp_mean_c=dorsal_meas.mean_c,
-            floor_temp_mean_c=tail_meas.floor_temp_c,
-            qc_flag="ok" if qc_valid else "; ".join(qc_reasons),
-            posture=posture,
-            sync_low_confidence=sync_result.low_confidence,
-            registration_low_confidence=rec["registration_low_confidence"],
-            local_edge_refined=rec["local_edge_refined"],
-        ))
+        if frame_row is not None:
+            frame_rows.append(frame_row)
     cap.release()
-    print(f"per-sample measurement: {len(per_sample)} samples in {time.time()-t0:.1f}s "
+    n_stationary_samples = sum(1 for _, _, s in sample_plan if s)
+    n_nonstationary_samples = len(sample_plan) - n_stationary_samples
+    print(f"per-sample measurement: {len(per_sample)} samples ({n_stationary_samples} stationary + "
+          f"{n_nonstationary_samples} non-stationary) in {time.time()-t0:.1f}s "
           f"({sum(1 for r in per_sample if 'fail' not in r)} succeeded)", flush=True)
     from collections import Counter
     fail_counts = Counter(r["fail"].split(":")[0] for r in per_sample if "fail" in r)
     print("failure reasons:", dict(fail_counts), flush=True)
     posture_counts = Counter(r.get("posture") for r in per_sample if "fail" not in r or r.get("posture"))
     print("posture breakdown (all attempted samples):", dict(posture_counts), flush=True)
+    correction_mags = [r["registration_correction_px"] for r in per_sample if r.get("registration_correction_px") is not None]
+    n_corrected = len(correction_mags)
+    n_edge_refined = sum(1 for r in per_sample if r.get("local_edge_refined"))
     if correction_mags:
         arr = np.array(correction_mags)
         print(f"registration correction applied: {n_corrected} samples, "
@@ -739,7 +666,7 @@ def process_session(name, cfg):
         rejected_detection_count=int(sum(1 for r in per_sample if "fail" in r)),
     )
 
-    out_dir = f"{REPO}/landmark_outputs"
+    out_dir = output_dir
     import os
     os.makedirs(out_dir, exist_ok=True)
     # Real bug fixed 2026-08-28 (Adam: "wire Back into stage7_real_run.py"): Front and
@@ -790,8 +717,42 @@ if __name__ == "__main__":
     # SESSIONS dict / helper functions (registration_correction_homography,
     # build_thermal_native_lookup, load_homography) without re-running the
     # full, slow 6-session pipeline as a side effect of the import.
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--sessions", nargs="+", default=None,
+        help="Session keys to run (default: all in --sessions-config).",
+    )
+    parser.add_argument("--sessions-config", default=DEFAULT_SESSIONS_CONFIG,
+                         help="Path to the committed per-session JSON config (default: "
+                              "stage7_sessions_config.json next to this repo).")
+    parser.add_argument("--repo-dir", default=str(DEFAULT_REPO_DIR),
+                         help="Resolves homography_json/tracking_csv/bouts_csv from the "
+                              "sessions config (default: this repo's own root -- override "
+                              "on MedicineBow if the repo lives elsewhere than expected).")
+    parser.add_argument("--thermal-seq-root", default=str(DEFAULT_THERMAL_SEQ_ROOT),
+                         help="Base dir for each session's thermal_seq_relpath -- the "
+                              "cropped .seq input (Alcova-mounted on MedicineBow; same dir "
+                              "Stage 1/batch_track_temperatures.py already reads from).")
+    parser.add_argument("--rgb-video-root", default=str(DEFAULT_RGB_VIDEO_ROOT),
+                         help="Base dir for each session's rgb_video_relpath -- the webcam "
+                              ".mp4 input (Alcova-mounted on MedicineBow).")
+    parser.add_argument("--output-dir", default=str(DEFAULT_REPO_DIR / "landmark_outputs"),
+                         help="Where bout/frame/qc_report outputs are written (MedicineBow "
+                              "storage only when run via SLURM -- see slurm/run_thermal_"
+                              "gradient.sbatch's STORAGE MODEL note).")
+    args = parser.parse_args()
+
+    sessions = load_sessions(
+        args.sessions_config, Path(args.repo_dir), Path(args.thermal_seq_root), Path(args.rgb_video_root),
+    )
+    bad = [n for n in (args.sessions or []) if n not in sessions]
+    if bad:
+        parser.error(f"unknown session(s) {bad}; available: {list(sessions.keys())}")
+    session_names = args.sessions or list(sessions.keys())
+
     results = {}
-    for name, cfg in SESSIONS.items():
-        results[name] = process_session(name, cfg)
+    for name in session_names:
+        results[name] = process_session(name, sessions[name], args.output_dir)
 
     print("\n=== DONE ===")

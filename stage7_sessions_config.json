@@ -1,0 +1,126 @@
+{
+  "_comment": "Per-session config for scripts/stage7_real_run.py (project_v8 Stage 7: RGB+thermal registration/landmark measurement). Committed, fixed input -- only ever read, like tracking_config.json/analysis_config.json. Only sessions with a real, individually-fit homography AND a human-verified sync_result/entry_time belong here (see project memory project_v8_homography_hybrid_calibration.md for why the other ~35 homography-covered sessions are NOT yet addable: Stage 7 also needs sync offset/drift and a verified entry time, which so far only exist for Test_3/4/7). thermal_seq_relpath/rgb_video_relpath are resolved against --thermal-seq-root/--rgb-video-root at runtime (Alcova-mounted on MedicineBow, a local path when run interactively) -- everything else here is resolved against --repo-dir since it already lives inside the repo's own output directories on every machine.",
+  "Test_3": {
+    "session_label": "07-28-25_4540_B_4541_F_Test3-004",
+    "thermal_seq_relpath": "07-28-25_Test_3/07-28-25_4540_B_4541_F_Test3-004_Front.seq",
+    "rgb_video_relpath": "07-28-25_Test_3/2025-07-28_10-57-21.mp4",
+    "homography_json": "homography_calibration/07-28-25_4540_B_4541_F_Test3-004_Front_homography.json",
+    "tracking_csv": "trackingOutputs/07-28-25_4540_B_4541_F_Test3-004_Front_tracking_every10frames.csv",
+    "bouts_csv": "bouts/qc_plots/07-28-25_4540_B_4541_F_Test3-004_Front_bout_rows.csv",
+    "mouse_id": 4541,
+    "track": "F",
+    "entry_time_thermal_sec": 34.85,
+    "entry_time_note": "RGB-confirmed entry (32.05s) converted via offset -2.8s (post camera_fps 8->10 fix)",
+    "sync_result": {
+      "offset_sec": -2.8,
+      "drift_slope": 0.0,
+      "r_squared": 0.999,
+      "residual_max_sec": 0.2,
+      "low_confidence": false,
+      "confidence_note": "resolved 2026-08-25: 5 real, human-verified anchor events spanning the full session (t=46-2261s thermal), fit AFTER discovering and correcting the camera_fps 8->10 error (see project memory) -- offset is now a clean constant (std=0.13s across all 5 anchors), no drift term needed. Supersedes the earlier -93.0/drift=0 value, which was compensating for the fps error, not real RGB/thermal clock drift. These anchors were all found on the FRONT lane; reused unchanged for Back (2026-08-28) since Front.seq/Back.seq are the same recording."
+    }
+  },
+  "Test_4": {
+    "session_label": "07-30-25_4540_F_4541_B_Test4-008",
+    "thermal_seq_relpath": "07-30-25_Test_4/07-30-25_4540_F_4541_B_Test4-008_Front.seq",
+    "rgb_video_relpath": "07-30-25_Test_4/2025-07-30_10-44-05.mp4",
+    "homography_json": "homography_calibration/07-30-25_4540_F_4541_B_Test4-008_Front_homography.json",
+    "tracking_csv": "trackingOutputs/07-30-25_4540_F_4541_B_Test4-008_Front_tracking_every10frames.csv",
+    "bouts_csv": "bouts/qc_plots/07-30-25_4540_F_4541_B_Test4-008_Front_bout_rows.csv",
+    "mouse_id": 4540,
+    "track": "F",
+    "entry_time_thermal_sec": 77.33,
+    "entry_time_note": "RGB-confirmed entry (82.83s) converted via offset +5.5s (post camera_fps 8->10 fix)",
+    "sync_result": {
+      "offset_sec": 5.5,
+      "drift_slope": 0.0,
+      "r_squared": 0.995,
+      "residual_max_sec": 0.5,
+      "low_confidence": false,
+      "confidence_note": "resolved 2026-08-25: 4 real, human-verified anchor events spanning the full session (t=94-1615s thermal), fit AFTER discovering and correcting the camera_fps 8->10 error (see project memory) -- offset is now a clean constant (std=0.46s across all 4 anchors), no drift term needed. Supersedes the earlier low-confidence +11.0 value, which was itself compensating for the fps error on top of the real offset, not a genuinely unresolved sync. These anchors were all found on the FRONT lane; reused unchanged for Back (2026-08-28) since Front.seq/Back.seq are the same recording."
+    }
+  },
+  "Test_7": {
+    "session_label": "08-07-25_4541_F_4540_B_Test7-020",
+    "thermal_seq_relpath": "08-07-25_Test_7/08-07-25_4541_F_4540_B_Test7-020_Front.seq",
+    "rgb_video_relpath": "08-07-25_Test_7/2025-08-07_10-54-09.mp4",
+    "homography_json": "homography_calibration/08-07-25_4541_F_4540_B_Test7-020_Front_homography.json",
+    "tracking_csv": "trackingOutputs/08-07-25_4541_F_4540_B_Test7-020_Front_tracking_every10frames.csv",
+    "bouts_csv": "bouts/qc_plots/08-07-25_4541_F_4540_B_Test7-020_Front_bout_rows.csv",
+    "mouse_id": 4541,
+    "track": "F",
+    "entry_time_thermal_sec": 28.0,
+    "entry_time_note": "RGB-confirmed touchdown (27s) converted via offset -0.51s",
+    "sync_result": {
+      "offset_sec": -0.51,
+      "drift_slope": 0.0,
+      "r_squared": 0.9999,
+      "residual_max_sec": 0.5,
+      "low_confidence": false,
+      "confidence_note": "resolved 2026-08-26: 4 real, human-verified anchor events spanning the full session (t=28-1588s thermal). fps was already 10.0 in this session's tracking data (unlike Test_3/4, no fps correction was needed here -- confirmed via these same anchors: slope=1.00002, implied fps=10.0002). Offset resolved to a tiny near-zero constant, no drift. Homography orientation was separately disputed and resolved: Adam's direct video review initially flagged a Test_4-style 180-degree rotation, but a precise same-real-moment overlay (both centroid AND full mouse silhouette, warped through the as-clicked calibration) landed almost exactly on the real thermal mouse blob including head/tail orientation -- the as-clicked (unmirrored) calibration was confirmed correct; raw RGB-vs-thermal frames are just genuinely hard to compare by eye given the real vertical flip + differing resolution/aspect ratio + the homography's own rotation/perspective terms. These anchors were all found on the FRONT lane; reused unchanged for Back (2026-08-28) since Front.seq/Back.seq are the same recording."
+    }
+  },
+  "Test_3_Back": {
+    "session_label": "07-28-25_4540_B_4541_F_Test3-004",
+    "thermal_seq_relpath": "07-28-25_Test_3/07-28-25_4540_B_4541_F_Test3-004_Back.seq",
+    "rgb_video_relpath": "07-28-25_Test_3/2025-07-28_10-57-21.mp4",
+    "homography_json": "homography_calibration/07-28-25_4540_B_4541_F_Test3-004_Back_homography.json",
+    "tracking_csv": "trackingOutputs/07-28-25_4540_B_4541_F_Test3-004_Back_tracking_every10frames.csv",
+    "bouts_csv": "bouts/qc_plots/07-28-25_4540_B_4541_F_Test3-004_Back_bout_rows.csv",
+    "mouse_id": 4540,
+    "track": "B",
+    "entry_time_thermal_sec": 71.0,
+    "entry_time_note": "auto-detected (Stage 1/2), not a verified anchor like the Front lanes' entry times -- a real, lower-confidence input, not yet upgraded.",
+    "_note": "Back lane, added 2026-08-28. Front.seq/Back.seq confirmed to be the SAME underlying recording for all 3 sessions (identical frame counts), so camera_fps and the RGB<->thermal sync_result established for Front apply directly and are reused unchanged here -- NOT re-derived, deliberately. This session's Back homography was independently calibrated and validated via validate_homography_orientation.py (confirmed as-clicked correct, real margin 4-25px vs 67-159px mirrored).",
+    "sync_result": {
+      "offset_sec": -2.8,
+      "drift_slope": 0.0,
+      "r_squared": 0.999,
+      "residual_max_sec": 0.2,
+      "low_confidence": false,
+      "confidence_note": "Reused unchanged from Test_3 Front -- see Test_3 entry above."
+    }
+  },
+  "Test_4_Back": {
+    "session_label": "07-30-25_4540_F_4541_B_Test4-008",
+    "thermal_seq_relpath": "07-30-25_Test_4/07-30-25_4540_F_4541_B_Test4-008_Back.seq",
+    "rgb_video_relpath": "07-30-25_Test_4/2025-07-30_10-44-05.mp4",
+    "homography_json": "homography_calibration/07-30-25_4540_F_4541_B_Test4-008_Back_homography.json",
+    "tracking_csv": "trackingOutputs/07-30-25_4540_F_4541_B_Test4-008_Back_tracking_every10frames.csv",
+    "bouts_csv": "bouts/qc_plots/07-30-25_4540_F_4541_B_Test4-008_Back_bout_rows.csv",
+    "mouse_id": 4541,
+    "track": "B",
+    "entry_time_thermal_sec": 81.0,
+    "entry_time_note": "auto-detected (Stage 1/2), not a verified anchor like the Front lanes' entry times -- a real, lower-confidence input, not yet upgraded.",
+    "_note": "Back lane, added 2026-08-28. See Test_3_Back's _note -- same rationale applies.",
+    "sync_result": {
+      "offset_sec": 5.5,
+      "drift_slope": 0.0,
+      "r_squared": 0.995,
+      "residual_max_sec": 0.5,
+      "low_confidence": false,
+      "confidence_note": "Reused unchanged from Test_4 Front -- see Test_4 entry above."
+    }
+  },
+  "Test_7_Back": {
+    "session_label": "08-07-25_4541_F_4540_B_Test7-020",
+    "thermal_seq_relpath": "08-07-25_Test_7/08-07-25_4541_F_4540_B_Test7-020_Back.seq",
+    "rgb_video_relpath": "08-07-25_Test_7/2025-08-07_10-54-09.mp4",
+    "homography_json": "homography_calibration/08-07-25_4541_F_4540_B_Test7-020_Back_homography.json",
+    "tracking_csv": "trackingOutputs/08-07-25_4541_F_4540_B_Test7-020_Back_tracking_every10frames.csv",
+    "bouts_csv": "bouts/qc_plots/08-07-25_4541_F_4540_B_Test7-020_Back_bout_rows.csv",
+    "mouse_id": 4540,
+    "track": "B",
+    "entry_time_thermal_sec": 132.0,
+    "entry_time_note": "auto-detected (Stage 1/2), not a verified anchor like the Front lanes' entry times -- a real, lower-confidence input, not yet upgraded.",
+    "_note": "Back lane, added 2026-08-28. See Test_3_Back's _note -- same rationale applies.",
+    "sync_result": {
+      "offset_sec": -0.51,
+      "drift_slope": 0.0,
+      "r_squared": 0.9999,
+      "residual_max_sec": 0.5,
+      "low_confidence": false,
+      "confidence_note": "Reused unchanged from Test_7 Front -- see Test_7 entry above."
+    }
+  }
+}

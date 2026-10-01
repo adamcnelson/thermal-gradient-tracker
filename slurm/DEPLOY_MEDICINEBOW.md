@@ -16,7 +16,7 @@ troubleshooting bout thresholds, etc.) — this manual does not duplicate that;
 it only covers getting the existing, already-configured pipeline running as
 a batch job on MedicineBow.
 
-The batch job (`slurm/run_thermal_gradient.sbatch`) runs four
+The batch job (`slurm/run_thermal_gradient.sbatch`) runs five
 already-non-interactive stages in sequence:
 
 1. `batch_track_temperatures.py` — tracking + temperature extraction (the vast
@@ -24,13 +24,21 @@ already-non-interactive stages in sequence:
 2. `batch_compute_bouts.py` — stationary bout detection
 3. `join_metadata.py` — join to experimental metadata
 4. `analyze_treatment_effects.py` — treatment-effect models and plots
+5. `stage7_real_run.py` — RGB+thermal registration/landmark measurement
+   (warm-spot, dorsal surface, tail delta-T) for the sessions listed in
+   `stage7_sessions_config.json`. As of 2026-10-01 that's only 3 sessions
+   (Test_3/4/7, x Front/Back) — every session needs a human-verified RGB↔
+   thermal sync offset and entry time, not just a homography, and that work
+   is only done for these three so far.
 
-**Important:** this repo also contains manual/interactive QC scripts
-(`create_arena_mask.py`, `select_training_frames.py`, `train_mouse_detector.py`)
-used earlier in development to draw the arena mask and tune segmentation.
-**These are retired — they are not run on the cluster and have no place in
-the batch job.** `tracking_config.json` — including its already-drawn
-`arena_polygon` — is a finalized, fixed input; the batch job only reads it.
+**Important:** this repo also contains manual/interactive QC/calibration
+scripts (`create_arena_mask.py`, `select_training_frames.py`,
+`train_mouse_detector.py`, `calibrate_homography.py`) used earlier in
+development to draw the arena mask, tune segmentation, and fit per-session
+homographies. **These are retired/human-run-only — they are not run on the
+cluster and have no place in the batch job.** `tracking_config.json` —
+including its already-drawn `arena_polygon` — and `stage7_sessions_config.json`
+are finalized, fixed inputs; the batch job only reads them.
 
 ---
 
@@ -261,9 +269,10 @@ that already does the right thing.
 |---|---|
 | `REPO_DIR` | Absolute path to this repo on MedicineBow, e.g. `/project/<your_project>/thermal-gradient-tracker` |
 | `ALCOVA_SEQ_INPUT_DIR` | Absolute Alcova path to your `.seq` input dataset (step 4) — or the staged MedicineBow copy, if you set that up |
-| `CONFIG_TRACKING`, `CONFIG_ANALYSIS`, `LUT` | Usually left as-is (they default to files inside `REPO_DIR`) |
+| `ALCOVA_RGB_VIDEO_DIR` | Absolute Alcova path to the RGB webcam `.mp4` files (the `Process_Jason`-equivalent root) — only used by Stage 5 |
+| `CONFIG_TRACKING`, `CONFIG_ANALYSIS`, `LUT`, `STAGE7_SESSIONS_CONFIG` | Usually left as-is (they default to files inside `REPO_DIR`) |
 | `VENV_PATH` | Usually left as-is (`${REPO_DIR}/.venv`, created in step 5) |
-| `OUTPUT_DIR`, `BOUTS_DIR` | **Leave pointed at MedicineBow** (default: inside `REPO_DIR`, i.e. `/project/...`). Do **not** repoint these at `/cluster/alcova/...` — see the storage-model note in section 1 and the matching comment block in the script itself. The script will refuse to run (fail its preflight check) if either resolves to an Alcova path. |
+| `OUTPUT_DIR`, `BOUTS_DIR`, `LANDMARK_OUTPUT_DIR` | **Leave pointed at MedicineBow** (default: inside `REPO_DIR`, i.e. `/project/...`). Do **not** repoint these at `/cluster/alcova/...` — see the storage-model note in section 1 and the matching comment block in the script itself. The script will refuse to run (fail its preflight check) if any resolves to an Alcova path. |
 | `RECURSIVE_FLAG` | `--recursive` if `ALCOVA_SEQ_INPUT_DIR` has session subfolders, or `""` if it's one flat folder of `.seq` files |
 
 Also confirm the `module load PYTHON_MODULE_PLACEHOLDER` line (and, if
@@ -412,7 +421,7 @@ durable copy of a given run's results.
 | Job stays `PENDING` in `squeue` for a long time | The requested `--time`/QoS may be lower priority or resources are busy. Confirm you're targeting the "Fast" QoS, not "Normal". `squeue -j <jobid> --start` shows the estimated start time; `sprio -j <jobid>` shows priority factors. |
 | Temperatures look linear/off even though the job succeeded | `exiftool` passed the preflight check but Planck constants weren't found for some individual files. Check the per-file log output from stage 1 for `exiftool not found or Planck constants missing` warnings. |
 | `metadata_join_report.csv` has `unmatched` rows | Not a Slurm issue — a metadata/filename mismatch. See `README.md`'s "Join misses" troubleshooting section (filename pattern vs. LUT `Video_name_SEQ` column). |
-| Permission error / failure writing to an Alcova path | **Don't write to Alcova from the job — this should never happen** given the preflight check in the sbatch script. If you see this, something has been misconfigured (e.g. `OUTPUT_DIR`/`BOUTS_DIR` was pointed at `/cluster/alcova/...`). Fix the path in the USER-CONFIG block back to a MedicineBow path; use the copy-back step (12) instead of writing to Alcova directly. |
+| Permission error / failure writing to an Alcova path | **Don't write to Alcova from the job — this should never happen** given the preflight check in the sbatch script. If you see this, something has been misconfigured (e.g. `OUTPUT_DIR`/`BOUTS_DIR`/`LANDMARK_OUTPUT_DIR` was pointed at `/cluster/alcova/...`). Fix the path in the USER-CONFIG block back to a MedicineBow path; use the copy-back step (12) instead of writing to Alcova directly. |
 | Anything else / cluster-specific errors (`module` not found, QoS/partition rejected, account invalid) | Contact ARCC support: **`arcc-help@uwyo.edu`** |
 
 ---
