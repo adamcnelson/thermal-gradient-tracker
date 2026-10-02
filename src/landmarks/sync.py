@@ -485,3 +485,94 @@ def passes_acceptance(
     residual_ok = result.residual_max_sec < threshold
     drift_ok = result.r_squared > drift_r2_min or abs(result.drift_slope) < drift_slope_zero_tol
     return residual_ok and drift_ok
+
+
+# ── trajectory alignment (project_brief_v8 sync for sessions without human anchors) ──
+
+@dataclass
+class TrajectorySyncResult:
+    offset_sec: float  # rgb_time = thermal_time * (1 + drift_slope) + offset_sec
+    drift_slope: float
+    camera_fps: float  # thermal_time = frame_number / camera_fps
+    loss: float  # fraction of samples > outlier_px from RGB after median debias
+    peak_ratio: float  # loss / best loss > min_separation_sec away; small = sharp
+    other_fps_loss: float  # best loss under any other fps candidate
+    n_samples: int
+
+
+def _trajectory_loss(frames, thermal_x, rgb_t, rgb_x, fps, drift, offsets, outlier_px, max_gap_sec, min_samples):
+    """Loss for every offset at one (fps, drift): fraction of thermal samples whose x
+    differs from the interpolated RGB x by > outlier_px, after removing the median
+    difference (absorbs a constant homography bias)."""
+    q = (frames / fps * (1 + drift))[None, :] + offsets[:, None]
+    i1 = np.clip(np.searchsorted(rgb_t, q), 1, len(rgb_t) - 1)
+    valid = (q >= rgb_t[0]) & (q <= rgb_t[-1]) & ((rgb_t[i1] - rgb_t[i1 - 1]) <= max_gap_sec)
+    d = np.where(valid, np.interp(q, rgb_t, rgb_x) - thermal_x[None, :], np.nan)
+    with np.errstate(invalid="ignore"):
+        dev = np.abs(d - np.nanmedian(d, axis=1, keepdims=True))
+        loss = np.nansum(dev > outlier_px, axis=1) / valid.sum(axis=1)
+    n = valid.sum(axis=1)
+    loss[n < min_samples] = np.nan
+    return loss, n
+
+
+def estimate_sync_from_trajectories(
+    frames: np.ndarray, thermal_x: np.ndarray, rgb_t: np.ndarray, rgb_x: np.ndarray,
+    fps_candidates: Sequence[float] = (8.0, 10.0), offset_range_sec: Tuple[float, float] = (-300.0, 300.0),
+    drift_range: float = 0.03, outlier_px: float = 15.0, max_gap_sec: float = 3.0,
+    min_samples: int = 200, min_separation_sec: float = 15.0,
+) -> TrajectorySyncResult:
+    """
+    Blind RGB<->thermal sync from two independent mouse x-trajectories in thermal
+    pixel space: thermal-native centroids (by frame number, so a wrong fps baked
+    into a tracking CSV can't bias it) vs the RGB track warped through the
+    homography. Grid-searches offset x camera fps x drift, then refines.
+
+    x only: the lane is ~412px long but ~43px tall, so y carries little signal.
+    The loss counts outliers rather than a median error -- a median is dominated
+    by stationary stretches, which can't distinguish offsets within a bout.
+
+    drift_range is deliberately much wider than real clock drift (~0): a nonzero
+    recovered drift means a timing bug (e.g. inaccurate video seeking produced
+    drift=-0.0165 on Test_7, 2026-10-01), which callers should flag, not trust.
+    Validated on Test_3/4/7 (6 lanes): within ~1s of human-anchored offsets.
+    """
+    frames, thermal_x = np.asarray(frames, float), np.asarray(thermal_x, float)
+    order = np.argsort(rgb_t)
+    rgb_t, rgb_x = np.asarray(rgb_t, float)[order], np.asarray(rgb_x, float)[order]
+    args = (outlier_px, max_gap_sec, min_samples)
+
+    def search(fps_list, drifts, offsets):
+        best = (np.inf, None, None, None, None)
+        for fps in fps_list:
+            for drift in drifts:
+                loss, n = _trajectory_loss(frames, thermal_x, rgb_t, rgb_x, fps, drift, offsets, *args)
+                if np.all(np.isnan(loss)):
+                    continue
+                b = int(np.nanargmin(loss))
+                if loss[b] < best[0]:
+                    best = (float(loss[b]), fps, drift, float(offsets[b]), (loss, int(n[b])))
+        return best
+
+    coarse_offsets = np.arange(offset_range_sec[0], offset_range_sec[1], 0.5)
+    coarse_drifts = np.arange(-drift_range, drift_range + 1e-9, 0.0025)
+    loss, fps, drift, offset, _ = search(fps_candidates, coarse_drifts, coarse_offsets)
+    if fps is None:
+        raise ValueError("No offset had enough overlapping samples to score")
+    other = [f for f in fps_candidates if f != fps]
+    other_loss = search(other, coarse_drifts, coarse_offsets)[0] if other else float("nan")
+
+    fine_offsets = np.arange(offset - 2.0, offset + 2.0, 0.05)
+    fine_drifts = np.arange(drift - 0.0025, drift + 0.0025 + 1e-9, 0.00025)
+    loss, fps, drift, offset, _ = search([fps], fine_drifts, fine_offsets)
+
+    # sharpness: compare against the best basin elsewhere at the winning (fps, drift)
+    curve, _ = _trajectory_loss(frames, thermal_x, rgb_t, rgb_x, fps, drift, coarse_offsets, *args)
+    far = np.abs(coarse_offsets - offset) > min_separation_sec
+    runner = np.nanmin(curve[far]) if np.any(far & ~np.isnan(curve)) else np.nan
+    n = _trajectory_loss(frames, thermal_x, rgb_t, rgb_x, fps, drift, np.array([offset]), *args)[1][0]
+    return TrajectorySyncResult(
+        offset_sec=offset, drift_slope=float(drift), camera_fps=float(fps), loss=loss,
+        peak_ratio=float(loss / runner) if runner and runner > 0 else float("nan"),
+        other_fps_loss=float(other_loss), n_samples=int(n),
+    )

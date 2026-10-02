@@ -434,3 +434,55 @@ class TestPassesAcceptance:
     def test_thermal_frame_sec_overrides_max_residual_sec_when_both_given(self):
         r = self._result(residual=1.5, r2=0.95, slope=-0.001)
         assert not passes_acceptance(r, thermal_frame_sec=0.125, max_residual_sec=5.0)
+
+
+# ── estimate_sync_from_trajectories ──────────────────────────────────────────
+
+from src.landmarks.sync import estimate_sync_from_trajectories
+
+
+def _synthetic_session(offset, true_fps=10.0, rgb_time_scale=1.0, bias_px=12.0, seed=0, duration=1500):
+    """Piecewise-stationary mouse x(t) (bouts + quick traversals), sampled by both cameras.
+    RGB clock: rgb_time = true_time + offset, optionally mis-scaled (a seek-style timing bug)."""
+    rng = np.random.default_rng(seed)
+    t_fine = np.arange(0, duration + 400, 0.1)
+    x = np.empty_like(t_fine)
+    pos, i = 200.0, 0
+    while i < len(t_fine):
+        stay = int(rng.uniform(50, 600))  # 5-60s bout
+        x[i:i + stay] = pos
+        i += stay
+        target = rng.uniform(10, 400)
+        move = int(rng.uniform(10, 40))
+        x[i:i + move] = np.linspace(pos, target, len(x[i:i + move]))
+        i += move
+        pos = target
+    true_t = lambda arr: np.interp(arr, t_fine, x)
+
+    frames = np.arange(0, int(duration * true_fps), 10)
+    thermal_x = true_t(frames / true_fps) + rng.normal(0, 2, len(frames))
+    rgb_t = np.arange(0, duration, 1.0)
+    rgb_x = true_t(rgb_t * rgb_time_scale - offset) + bias_px + rng.normal(0, 2, len(rgb_t))
+    keep = rgb_t * rgb_time_scale - offset >= 0
+    return frames, thermal_x, rgb_t[keep], rgb_x[keep]
+
+
+@pytest.mark.parametrize("offset", [-93.0, -2.8, 5.5, 140.0])
+def test_trajectory_sync_recovers_known_offset_and_fps(offset):
+    res = estimate_sync_from_trajectories(*_synthetic_session(offset))
+    assert res.camera_fps == 10.0
+    assert abs(res.offset_sec - offset) < 0.5
+    assert abs(res.drift_slope) < 0.001
+    assert res.peak_ratio < 0.5 and res.other_fps_loss > res.loss
+
+
+def test_trajectory_sync_picks_8fps_when_frames_are_8fps():
+    res = estimate_sync_from_trajectories(*_synthetic_session(10.0, true_fps=8.0))
+    assert res.camera_fps == 8.0 and abs(res.offset_sec - 10.0) < 0.5
+
+
+def test_trajectory_sync_exposes_rgb_timing_bug_as_drift():
+    # RGB labels run 1.69% slow vs reality, like cv2 seeking on Test_7's mp4
+    res = estimate_sync_from_trajectories(*_synthetic_session(-0.5, rgb_time_scale=1.0169))
+    assert res.drift_slope == pytest.approx(-0.0166, abs=0.001)
+    assert abs(res.offset_sec - (-0.5) / 1.0169) < 1.0

@@ -116,6 +116,10 @@ def compute_rgb_track(video_path: str, lane: str, sample_hz: float, log,
                 continue
             ok, frame = reader.read(idx)
             if not ok:
+                # Decode stopped early (e.g. network mount dropped mid-read): fail rather than
+                # write a silently truncated track. FRAME_COUNT can overstate by a few frames.
+                if idx < total - rgb_fps:
+                    raise IOError(f"Video decode stopped at frame {idx}/{total} ({video_path})")
                 continue
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             top, bottom = split_track_crops(gray, split_row=split_row)
