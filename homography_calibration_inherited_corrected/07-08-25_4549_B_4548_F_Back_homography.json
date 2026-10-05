@@ -1,0 +1,121 @@
+{
+  "seq_path": "/Volumes/cluster/alcova/bedfordlab/ThermalGradient/croppedSeqFiles/Test_1/07-08-25_4549_B_4548_F_Back.seq",
+  "video_path": "/Volumes/cluster/alcova/bedfordlab/ThermalGradient/Process_Jason/Test_1/2025-07-08 11-33-11_4549_B_4548_F.mp4",
+  "lane": "B",
+  "rgb_points": [
+    [
+      66,
+      465
+    ],
+    [
+      916,
+      493
+    ],
+    [
+      1758,
+      534
+    ],
+    [
+      1747,
+      726
+    ],
+    [
+      917,
+      701
+    ],
+    [
+      65,
+      658
+    ]
+  ],
+  "thermal_points": [
+    [
+      0,
+      42
+    ],
+    [
+      202,
+      42
+    ],
+    [
+      410,
+      41
+    ],
+    [
+      410,
+      0
+    ],
+    [
+      202,
+      0
+    ],
+    [
+      0,
+      0
+    ]
+  ],
+  "H": [
+    [
+      0.22771902600932162,
+      -0.0023639352192994668,
+      -3.907813963639363
+    ],
+    [
+      0.0078085636175221984,
+      -0.2017872550541025,
+      116.92368941173457
+    ],
+    [
+      -2.4449748231091302e-05,
+      -3.098500984281474e-05,
+      1.0
+    ]
+  ],
+  "rmse_px": 0.9699469617101303,
+  "residuals_px": [
+    1.037888772036044,
+    0.716188509971148,
+    0.42244856596047137,
+    0.3739607601502697,
+    1.3670507067192177,
+    1.366567411617648
+  ],
+  "passes_acceptance": true,
+  "source": "inherited_base_regime+translation_correction",
+  "regime": "vertical",
+  "base_homography": "07-28-25_4540_B_4541_F_Test3-004_Back_homography.json",
+  "H_uncorrected": [
+    [
+      0.22796185304138294,
+      -0.002056202071808249,
+      -13.839492186506853
+    ],
+    [
+      0.007392886788407425,
+      -0.20231403964590344,
+      133.92496178419123
+    ],
+    [
+      -2.4449748231091302e-05,
+      -3.098500984281474e-05,
+      1.0
+    ]
+  ],
+  "translation_correction_px": [
+    9.93,
+    -17.0
+  ],
+  "translation_correction_halves_px": [
+    [
+      11.63,
+      -17.44
+    ],
+    [
+      8.7,
+      -16.92
+    ]
+  ],
+  "translation_correction_stable": true,
+  "translation_correction_n_samples": 3841,
+  "translation_correction_note": "Constant offset of the inherited base calibration, measured at the session's trajectory sync (offset -3.10s, drift -0.00000) as median(thermal-native - RGB-warped centroid) over 3841 samples where both trackers agree in x; folded in as T@H. Original matrix in H_uncorrected. scripts/correct_inherited_homographies.py"
+}

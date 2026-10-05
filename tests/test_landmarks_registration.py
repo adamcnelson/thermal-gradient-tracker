@@ -205,3 +205,11 @@ class TestHeightCorrection:
         pts = np.array([[1.0, 2.0], [3.0, 4.0]])
         result = apply_height_correction(pts, correction_fn=lambda p: p + 5.0)
         np.testing.assert_allclose(result, pts + 5.0)
+
+
+def test_translate_homography_shifts_every_projected_point_exactly():
+    from src.landmarks.registration import translate_homography
+    H = np.array([[0.21, 0.01, -12.0], [0.003, -0.19, 140.0], [1e-5, 2e-5, 1.0]])  # with perspective terms
+    pts = np.array([[50.0, 400.0], [900.0, 600.0], [1700.0, 700.0]])
+    shifted = apply_homography(translate_homography(H, 21.5, -28.0), pts)
+    np.testing.assert_allclose(shifted - apply_homography(H, pts), [[21.5, -28.0]] * 3, atol=1e-9)

@@ -39,8 +39,9 @@ from src.seq_io import SeqReader, raw_to_celsius, read_planck_constants
 
 REPO = Path(__file__).resolve().parent.parent
 SYNC_DIR = REPO / "thermalFeatures" / "trajectory_sync"
-ALCOVA_TG = "/Volumes/alcova/bedfordlab/ThermalGradient"
-DEFAULT_TRACKING_DIR = f"{ALCOVA_TG}/SLURM_RESULTS/results_fullrun_mgms2_2026-07-28/trackingOutputs"
+ALCOVA_TG = "/Volumes/alcova/bedfordlab/ThermalGradient"  # Mac mount; --alcova-root overrides (MedicineBow)
+TRACKING_RUN = "SLURM_RESULTS/results_fullrun_mgms2_2026-07-28/trackingOutputs"
+DEFAULT_TRACKING_DIR = f"{ALCOVA_TG}/{TRACKING_RUN}"
 LANE_NAMES = {"F": "Front", "B": "Back"}
 N_MOMENTS = 6
 MOVING_PX = 15.0  # thermal x change between consecutive 1s samples that counts as "moving"
@@ -51,11 +52,12 @@ def alcova_path(recorded: str, marker: str, root: str) -> str:
     return f"{root}/{recorded.split(marker, 1)[1]}"
 
 
-def lane_inputs(session, lane, tracking_dir):
-    hj = REPO / "homography_calibration_inherited" / f"{session}_{LANE_NAMES[lane]}_homography.json"
+def lane_inputs(session, lane, tracking_dir, homography_dir="homography_calibration_inherited"):
+    hj = REPO / homography_dir / f"{session}_{LANE_NAMES[lane]}_homography.json"
     meta = json.load(open(hj))
     return dict(
         H=np.array(meta["H"], dtype=np.float64),
+        H_uncorrected=np.array(meta.get("H_uncorrected", meta["H"]), dtype=np.float64),
         seq=alcova_path(meta["seq_path"], "/croppedSeqFiles/", f"{ALCOVA_TG}/croppedSeqFiles"),
         video=alcova_path(meta["video_path"], "/Process_Jason/", f"{ALCOVA_TG}/Process_Jason"),
         tracking=f"{tracking_dir}/{session}_{LANE_NAMES[lane]}_tracking_every10frames.csv",
@@ -154,12 +156,13 @@ def draw_mask_outline(ax, mask, H, shape, color, ls="-"):
         ax.plot(c[:, 0], c[:, 1], color=color, ls=ls, lw=1.4)
 
 
-def render_session(session, sess_row, lane_rows, tracking_dir, out_dir):
+def render_session(session, sess_row, lane_rows, tracking_dir, out_dir,
+                   homography_dir="homography_calibration_inherited", compare_uncorrected=False):
     offset, drift, fps = sess_row.offset_sec, sess_row.drift_slope, sess_row.camera_fps
     lanes = list(lane_rows.lane)
     clean = [l for l, f in zip(lane_rows.lane, lane_rows["flags"].fillna("")) if not f]
     qc_lane = clean[0] if clean else lanes[0]
-    inputs = {l: lane_inputs(session, l, tracking_dir) for l in lanes}
+    inputs = {l: lane_inputs(session, l, tracking_dir, homography_dir) for l in lanes}
     tracks = {l: load_tracks(inputs[l]) for l in lanes}
 
     frames, tx, rt, rx = tracks[qc_lane]
@@ -204,28 +207,42 @@ def render_session(session, sess_row, lane_rows, tracking_dir, out_dir):
         if img is not None:
             ax.imshow(img, cmap="inferno", vmin=np.percentile(img, 2), vmax=np.percentile(img, 99.5),
                       aspect="equal", interpolation="nearest")
-            draw_mask_outline(ax, masks.get(want[m][1]), inputs[qc_lane]["H"], img.shape, "red", "--")
+            if compare_uncorrected:  # same RGB frame, original (uncorrected) homography
+                draw_mask_outline(ax, masks.get(want[m][0]), inputs[qc_lane]["H_uncorrected"], img.shape, "yellow", "--")
+            else:
+                draw_mask_outline(ax, masks.get(want[m][1]), inputs[qc_lane]["H"], img.shape, "red", "--")
             draw_mask_outline(ax, masks.get(want[m][0]), inputs[qc_lane]["H"], img.shape, "lime")
-        ax.set_title(f"t_thermal={m / fps:.0f}s  (green = estimate, red dashed = {runner:+.1f}s)",
+        legend = ("green = corrected H, yellow dashed = uncorrected H" if compare_uncorrected
+                  else f"green = estimate, red dashed = {runner:+.1f}s")
+        ax.set_title(f"t_thermal={m / fps:.0f}s  ({legend})",
                      fontsize=7, loc="left", pad=2)
         ax.set_xticks([]); ax.set_yticks([])
     flags = "; ".join(x for x in (sess_row.low_confidence_reasons, sess_row.review_reasons) if isinstance(x, str) and x)
     fig.suptitle(f"{session}  sync offset={offset:+.2f}s drift={drift:+.4f} fps={fps:.0f}  "
                  f"[{flags or 'no flags'}]  frames: {LANE_NAMES[qc_lane]} lane", fontsize=10)
     fig.tight_layout()
-    out = out_dir / f"{session}_sync_qc.png"
+    out = out_dir / f"{session}_{'homography_corrected_qc' if compare_uncorrected else 'sync_qc'}.png"
     fig.savefig(out, dpi=90)
     plt.close(fig)
     return out
 
 
 def main():
+    global ALCOVA_TG
     parser = argparse.ArgumentParser(description="Render sync QC figures")
     parser.add_argument("--sessions", nargs="*", default=[])
     parser.add_argument("--review", action="store_true", help="All low-confidence / needs-review sessions")
-    parser.add_argument("--tracking-dir", default=DEFAULT_TRACKING_DIR)
+    parser.add_argument("--alcova-root", default=ALCOVA_TG,
+                        help="ThermalGradient dir on Alcova (MedicineBow: /cluster/alcova/bedfordlab/ThermalGradient)")
+    parser.add_argument("--tracking-dir", default=None, help="Default: <alcova-root>/" + TRACKING_RUN)
     parser.add_argument("--output-dir", default=str(SYNC_DIR / "qc"))
+    parser.add_argument("--homography-dir", default="homography_calibration_inherited",
+                        help="Repo-relative dir of homography JSONs to overlay with")
+    parser.add_argument("--compare-uncorrected", action="store_true",
+                        help="Overlay the H_uncorrected outline (yellow) instead of the competing offset")
     args = parser.parse_args()
+    ALCOVA_TG = args.alcova_root  # read by lane_inputs() for the .seq / .mp4 roots
+    args.tracking_dir = args.tracking_dir or f"{ALCOVA_TG}/{TRACKING_RUN}"
 
     sess = pd.read_csv(SYNC_DIR / "session_sync.csv").set_index("session")
     lanes = pd.read_csv(SYNC_DIR / "sync_estimates.csv")
@@ -237,7 +254,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     for s in dict.fromkeys(names):
         out = render_session(s, sess.loc[s], lanes[lanes.session == s].sort_values("lane", ascending=False),
-                             args.tracking_dir, out_dir)
+                             args.tracking_dir, out_dir, args.homography_dir, args.compare_uncorrected)
         print(f"{s} -> {out}", flush=True)
 
 

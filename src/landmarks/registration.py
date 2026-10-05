@@ -66,6 +66,12 @@ def apply_homography(H: np.ndarray, points: np.ndarray) -> np.ndarray:
     return warped.reshape(-1, 2)
 
 
+def translate_homography(H: np.ndarray, dx: float, dy: float) -> np.ndarray:
+    """T @ H with T a pure translation: every projected point moves by exactly (dx, dy)."""
+    T = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy], [0.0, 0.0, 1.0]])
+    return T @ np.asarray(H, dtype=np.float64)
+
+
 def reprojection_error(
     H: np.ndarray, rgb_points: np.ndarray, thermal_points: np.ndarray
 ) -> "tuple[float, np.ndarray]":
