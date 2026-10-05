@@ -27,7 +27,9 @@
 # Expected runtime: well under 2 hours with 16 CPUs.
 # ---------------------------------------------------------------------------
 
-#SBATCH --account=<PROJECT_NAME>
+# SUBJECT TO CHANGE: filled in for Adam's MedicineBow setup (2026-10-05); per-user values
+# will move to a git-ignored slurm/local.env so each clone (Adam, Lucas) sets its own.
+#SBATCH --account=huddlevidmicro
 #SBATCH --job-name=trajectory_sync
 #SBATCH --time=04:00:00
 #SBATCH --qos=fast
@@ -39,7 +41,9 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=48G
 #SBATCH --mail-type=ALL
-#SBATCH --mail-user=<USER_EMAIL>
+# SUBJECT TO CHANGE: filled in for Adam's MedicineBow setup (2026-10-05); per-user values
+# will move to a git-ignored slurm/local.env so each clone (Adam, Lucas) sets its own.
+#SBATCH --mail-user=anelso74@uwyo.edu
 #SBATCH --output=logs/%x_%j.out
 #SBATCH --error=logs/%x_%j.err
 
@@ -48,7 +52,9 @@ set -euo pipefail
 # =============================================================================
 # USER-CONFIG BLOCK
 # =============================================================================
-REPO_DIR="<PATH_TO_REPO_ON_MEDICINEBOW>/thermal-gradient-tracker"
+# SUBJECT TO CHANGE: filled in for Adam's MedicineBow setup (2026-10-05); per-user values
+# will move to a git-ignored slurm/local.env so each clone (Adam, Lucas) sets its own.
+REPO_DIR="/project/huddlevidmicro/anelso74/thermal-gradient-tracker"
 VENV_PATH="${REPO_DIR}/.venv"
 
 # Inputs on Alcova (read-only). TRACKING_DIR must be the tracking run the

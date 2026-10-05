@@ -74,7 +74,9 @@
 # this is the ARCC project you were added to; it's named in the welcome email
 # from arcc-admin@uwyo.edu, or run `my_accounts` on a login node. The job will
 # be rejected at submission time if this is left as the placeholder.
-#SBATCH --account=<PROJECT_NAME>
+# SUBJECT TO CHANGE: filled in for Adam's MedicineBow setup (2026-10-05); per-user values
+# will move to a git-ignored slurm/local.env so each clone (Adam, Lucas) sets its own.
+#SBATCH --account=huddlevidmicro
 
 # A human-readable name shown in `squeue`.
 #SBATCH --job-name=thermal_gradient
@@ -135,7 +137,9 @@
 # Email notifications. ALL = job begin, end, fail, requeue, etc. Replace the
 # placeholder with your actual email before submitting.
 #SBATCH --mail-type=ALL
-#SBATCH --mail-user=<USER_EMAIL>
+# SUBJECT TO CHANGE: filled in for Adam's MedicineBow setup (2026-10-05); per-user values
+# will move to a git-ignored slurm/local.env so each clone (Adam, Lucas) sets its own.
+#SBATCH --mail-user=anelso74@uwyo.edu
 
 # Slurm stdout/stderr logs. %x = job name, %j = job ID. The `logs/` directory
 # is created below (mkdir -p) before Slurm needs it.
@@ -167,7 +171,9 @@ set -euo pipefail
 # VENV_PATH  — the one-time project virtualenv (see DEPLOY_MEDICINEBOW.md
 #              "One-time environment setup"). This job only activates it, it
 #              never runs `pip install` itself.
-REPO_DIR="<PATH_TO_REPO_ON_MEDICINEBOW>/thermal-gradient-tracker"
+# SUBJECT TO CHANGE: filled in for Adam's MedicineBow setup (2026-10-05); per-user values
+# will move to a git-ignored slurm/local.env so each clone (Adam, Lucas) sets its own.
+REPO_DIR="/project/huddlevidmicro/anelso74/thermal-gradient-tracker"
 VENV_PATH="${REPO_DIR}/.venv"
 
 # ---- INPUT (Alcova, /cluster/alcova/bedfordlab — read-only from this job) --
@@ -178,13 +184,17 @@ VENV_PATH="${REPO_DIR}/.venv"
 #     by a human beforehand — see DEPLOY_MEDICINEBOW.md step 4) and point this
 #     at that staged copy instead; either way this variable must resolve to a
 #     READ-ONLY source as far as this job is concerned.
-ALCOVA_SEQ_INPUT_DIR="/cluster/alcova/bedfordlab/<PATH_TO_CROPPED_SEQ_FILES>"
+# SUBJECT TO CHANGE: filled in for Adam's MedicineBow setup (2026-10-05); per-user values
+# will move to a git-ignored slurm/local.env so each clone (Adam, Lucas) sets its own.
+ALCOVA_SEQ_INPUT_DIR="/cluster/alcova/bedfordlab/ThermalGradient/croppedSeqFiles"
 
 # ALCOVA_RGB_VIDEO_DIR — directory containing the RGB webcam .mp4 files, on
 #     Alcova (the Process_Jason-equivalent root). Only used by Stage 5
 #     (stage7_real_run.py) — Stages 1-4 never touch RGB video. Same
 #     read-only-from-this-job rule as ALCOVA_SEQ_INPUT_DIR above.
-ALCOVA_RGB_VIDEO_DIR="/cluster/alcova/bedfordlab/<PATH_TO_RGB_VIDEO_FILES>"
+# SUBJECT TO CHANGE: filled in for Adam's MedicineBow setup (2026-10-05); per-user values
+# will move to a git-ignored slurm/local.env so each clone (Adam, Lucas) sets its own.
+ALCOVA_RGB_VIDEO_DIR="/cluster/alcova/bedfordlab/ThermalGradient/Process_Jason"
 
 # Fixed config/metadata inputs — also only ever read, never written, and
 # normally live inside the repo (MedicineBow /project) rather than on Alcova.
