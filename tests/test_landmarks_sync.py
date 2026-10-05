@@ -486,3 +486,45 @@ def test_trajectory_sync_exposes_rgb_timing_bug_as_drift():
     res = estimate_sync_from_trajectories(*_synthetic_session(-0.5, rgb_time_scale=1.0169))
     assert res.drift_slope == pytest.approx(-0.0166, abs=0.001)
     assert abs(res.offset_sec - (-0.5) / 1.0169) < 1.0
+
+
+# ── consolidate_session_sync ─────────────────────────────────────────────────
+
+from src.landmarks.sync import consolidate_session_sync
+
+
+def _lanes(rows):
+    return pd.DataFrame(rows, columns=["session", "lane", "offset_sec", "drift_slope", "camera_fps", "flags"])
+
+
+def test_consolidate_averages_clean_lanes_and_ignores_flagged():
+    out = consolidate_session_sync(_lanes([
+        ("S1", "F", 2.0, 0.0, 10.0, ""), ("S1", "B", 2.2, 0.0, 10.0, ""),
+        ("S2", "F", 5.0, 0.0, 10.0, "flat_minimum"), ("S2", "B", 4.6, 0.0, 10.0, ""),
+    ])).set_index("session")
+    assert out.loc["S1", "offset_sec"] == pytest.approx(2.1)
+    assert out.loc["S2", "offset_sec"] == pytest.approx(4.6)  # flagged F excluded
+    assert not out["low_confidence"].any()
+    assert out.loc["S2", "lane_spread_sec"] == pytest.approx(0.4)
+
+
+def test_consolidate_low_confidence_reasons():
+    out = consolidate_session_sync(_lanes([
+        ("A", "F", 1.0, 0.0, 10.0, "poor_fit"), ("A", "B", 1.1, 0.0, 10.0, "flat_minimum"),
+        ("B", "F", 1.0, 0.0, 10.0, ""), ("B", "B", 3.0, 0.0, 10.0, ""),
+        ("C", "F", 1.0, 0.0, 10.0, ""), ("C", "B", 1.0, 0.0, 8.0, ""),
+    ])).set_index("session")
+    assert out.loc["A", "low_confidence_reasons"] == "no_clean_lane"
+    assert out.loc["A", "offset_sec"] == pytest.approx(1.05)  # falls back to all lanes
+    assert out.loc["B", "low_confidence_reasons"] == "lane_disagreement"
+    assert out.loc["C", "low_confidence_reasons"] == "lane_fps_mismatch"
+
+
+def test_consolidate_review_reasons_do_not_set_low_confidence():
+    out = consolidate_session_sync(_lanes([
+        ("Big", "F", 45.8, 0.0, 10.0, ""), ("Big", "B", 45.8, 0.0, 10.0, ""),
+        ("Solo", "F", 2.0, 0.0, 10.0, ""),
+    ])).set_index("session")
+    assert out.loc["Big", "review_reasons"] == "large_offset"
+    assert out.loc["Solo", "review_reasons"] == "single_lane"
+    assert not out["low_confidence"].any()

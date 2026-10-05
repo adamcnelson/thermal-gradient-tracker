@@ -576,3 +576,54 @@ def estimate_sync_from_trajectories(
         peak_ratio=float(loss / runner) if runner and runner > 0 else float("nan"),
         other_fps_loss=float(other_loss), n_samples=int(n),
     )
+
+
+def consolidate_session_sync(
+    lanes: pd.DataFrame, max_lane_spread_sec: float = 1.0, large_offset_sec: float = 15.0,
+) -> pd.DataFrame:
+    """
+    Collapse per-lane trajectory sync estimates into one sync per session.
+
+    Front.seq/Back.seq are the same thermal recording against the same RGB video,
+    so both lanes estimate the same sync -- their agreement is an independent check.
+    Uses the mean of the unflagged lanes (all lanes if none are clean).
+
+    low_confidence: no clean lane, lanes disagree by > max_lane_spread_sec, or the
+    lanes picked different fps. review_reasons (not low_confidence) marks things a
+    human should eyeball: a single scored lane, or |offset| > large_offset_sec
+    (atypical across this corpus, though possibly real).
+
+    `lanes` needs columns: session, lane, offset_sec, drift_slope, camera_fps, flags.
+    """
+    rows = []
+    lanes = lanes.dropna(subset=["offset_sec"]).copy()
+    lanes["flags"] = lanes["flags"].fillna("")
+    for session, g in lanes.groupby("session", sort=True):
+        clean = g[g["flags"] == ""]
+        use = clean if len(clean) else g
+        spread = float(g["offset_sec"].max() - g["offset_sec"].min()) if len(g) > 1 else float("nan")
+        reasons = []
+        if not len(clean):
+            reasons.append("no_clean_lane")
+        if spread > max_lane_spread_sec:
+            reasons.append("lane_disagreement")
+        if g["camera_fps"].nunique() > 1:
+            reasons.append("lane_fps_mismatch")
+        offset = float(use["offset_sec"].mean())
+        review = []
+        if len(g) == 1:
+            review.append("single_lane")
+        if abs(offset) > large_offset_sec:
+            review.append("large_offset")
+        lane_desc = "; ".join(
+            f"{r.lane}={r.offset_sec:+.2f}s/drift{r.drift_slope:+.4f}" + (f" [{r.flags}]" if r.flags else "")
+            for r in g.itertuples()
+        )
+        rows.append(dict(
+            session=session, offset_sec=round(offset, 3),
+            drift_slope=round(float(use["drift_slope"].mean()), 5),
+            camera_fps=float(use["camera_fps"].iloc[0]), n_lanes=len(g), n_clean_lanes=len(clean),
+            lane_spread_sec=spread, low_confidence=bool(reasons),
+            low_confidence_reasons=";".join(reasons), review_reasons=";".join(review), lanes=lane_desc,
+        ))
+    return pd.DataFrame(rows)
