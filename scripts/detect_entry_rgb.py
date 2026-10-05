@@ -60,8 +60,8 @@ def lane_crop(gray, split_row, lane):
     return top if lane == LANE_TOP else bottom
 
 
-def detect_session(video, lanes, scan_sec, sample_hz, min_sustained_sec, changed_fraction, min_intrusion_sec):
-    """{lane: dict(rgb_entry_sec | None, n_intrusion, first_intrusion_sec, thumbs={sec: img})}."""
+def decode_states(video, lanes, scan_sec, sample_hz, changed_fraction):
+    """Per-sample (times, {lane: states}, {lane: {sec: thumbnail}}) from one sequential decode."""
     cap = cv2.VideoCapture(video)
     fps, n = cap.get(cv2.CAP_PROP_FPS), int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     ok, first = cap.read()
@@ -100,20 +100,28 @@ def detect_session(video, lanes, scan_sec, sample_hz, min_sustained_sec, changed
                     thumbs[l][int(round(t))] = cv2.resize(crop, None, fx=THUMB_SCALE, fy=THUMB_SCALE)
     finally:
         reader.release()
+    return times, states, thumbs
 
+
+def entries_from_states(times, states, sample_hz, min_sustained_sec, min_intrusion_sec):
+    """{lane: dict(rgb_entry_sec | None, entry_via_other_lane, n_intrusion, first_intrusion_sec)}."""
     min_run = max(1, int(round(min_sustained_sec * sample_hz)))
     min_intr = max(1, int(round(min_intrusion_sec * sample_hz)))
-    # Both mice go in during one handling episode; a faint arm in one lane's crop is covered by the other's.
-    own = {l: first_qualifying_intrusion(states[l], min_intr) for l in lanes}
+    own = {l: first_qualifying_intrusion(s, min_intr) for l, s in states.items()}
+    # Both mice go in during one handling episode, so a lane whose own arm signal is too faint to
+    # qualify (Test_7 Back) borrows the other lane's. A lane WITH its own qualifying intrusion uses
+    # that: borrowing a hand seen at t=0 in the other lane let a still-empty lane's camera-settling
+    # frames pass as an entry at 1.4s (07-11_4548 B, Test10-005 B, 2026-10-05).
     episode = min((v for v in own.values() if v is not None), default=None)
     out = {}
-    for l in lanes:
-        k = find_entry_index(states[l], min_sustained_detections=min_run, min_intrusion_run=min_intr,
-                             intrusion_seen_from=episode)
-        intr = [times[i] for i, s in enumerate(states[l]) if s == "intrusion"]
-        out[l] = dict(rgb_entry_sec=None if k is None else round(times[k], 2), n_intrusion=len(intr),
-                      entry_via_other_lane=k is not None and (own[l] is None or own[l] > k),
-                      first_intrusion_sec=round(intr[0], 2) if intr else None, thumbs=thumbs[l])
+    for l, s in states.items():
+        start = own[l] if own[l] is not None else episode
+        k = find_entry_index(s, min_sustained_detections=min_run, min_intrusion_run=min_intr,
+                             intrusion_seen_from=start)
+        intr = [times[i] for i, x in enumerate(s) if x == "intrusion"]
+        out[l] = dict(rgb_entry_sec=None if k is None else round(float(times[k]), 2), n_intrusion=len(intr),
+                      entry_via_other_lane=k is not None and own[l] is None,
+                      first_intrusion_sec=round(float(intr[0]), 2) if intr else None)
     return out
 
 
@@ -182,16 +190,24 @@ def batch_jobs(rgb_root):
 
 
 def run_job(job, args_tuple):
-    scan_sec, sample_hz, min_sustained_sec, changed_fraction, min_intrusion_sec, sheet_dir = args_tuple
-    res = detect_session(job["video"], list(job["lanes"]), scan_sec, sample_hz, min_sustained_sec,
-                         changed_fraction, min_intrusion_sec)
+    scan_sec, sample_hz, min_sustained_sec, changed_fraction, min_intrusion_sec, out_dir, from_states = args_tuple
+    states_path = Path(out_dir) / "states" / f"{job['session']}.npz"
+    lanes = list(job["lanes"])
+    if from_states:  # re-evaluate saved per-sample states; no video decode, no contact sheets
+        z = np.load(states_path)
+        times, states, thumbs = z["times"], {l: list(z[f"states_{l}"]) for l in lanes}, None
+    else:
+        times, states, thumbs = decode_states(job["video"], lanes, scan_sec, sample_hz, changed_fraction)
+        np.savez_compressed(states_path, times=np.array(times), **{f"states_{l}": np.array(s) for l, s in states.items()})
+    res = entries_from_states(times, states, sample_hz, min_sustained_sec, min_intrusion_sec)
     rows = []
     for lane, extra in job["lanes"].items():
         r = res[lane]
         rgb = r["rgb_entry_sec"]
         thermal = None if rgb is None else round((rgb - job["offset"]) / (1 + job["drift"]), 2)
-        contact_sheet(r["thumbs"], rgb, f"{job['session']} {lane}  RGB entry={rgb}s  thermal={thermal}s",
-                      Path(sheet_dir) / f"{job['session']}_{lane}_entry.png")
+        if thumbs is not None:
+            contact_sheet(thumbs[lane], rgb, f"{job['session']} {lane}  RGB entry={rgb}s  thermal={thermal}s",
+                          Path(out_dir) / "contact_sheets" / f"{job['session']}_{lane}_entry.png")
         row = dict(session=job["session"], lane=lane, rgb_entry_sec=rgb, thermal_entry_sec=thermal,
                    first_intrusion_sec=r["first_intrusion_sec"], n_intrusion_samples=r["n_intrusion"],
                    entry_via_other_lane=r["entry_via_other_lane"],
@@ -214,14 +230,17 @@ def main():
     parser.add_argument("--min-intrusion-sec", type=float, default=1.5,
                         help="Intrusions shorter than this (shadows, exposure blips) are ignored")
     parser.add_argument("--jobs", type=int, default=1, help="Sessions decoded in parallel")
+    parser.add_argument("--from-states", action="store_true",
+                        help="Re-derive entries from <output-dir>/states/*.npz saved by a previous run "
+                             "(no video decode; contact sheets are not regenerated)")
     args = parser.parse_args()
 
     out_dir = Path(args.output_dir)
-    sheet_dir = out_dir / "contact_sheets"
-    sheet_dir.mkdir(parents=True, exist_ok=True)
+    for sub in ("contact_sheets", "states"):
+        (out_dir / sub).mkdir(parents=True, exist_ok=True)
     jobs = validation_jobs(args.rgb_video_root) if args.validate else batch_jobs(args.rgb_video_root)
     params = (args.scan_sec, args.sample_hz, args.min_sustained_sec, args.intrusion_changed_fraction,
-              args.min_intrusion_sec, str(sheet_dir))
+              args.min_intrusion_sec, str(out_dir), args.from_states)
 
     rows = []
     with ProcessPoolExecutor(max_workers=args.jobs) as pool:
