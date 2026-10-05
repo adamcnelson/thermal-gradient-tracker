@@ -144,3 +144,68 @@ class TestFindEntryFrameIndexEndToEnd:
         frames = [_blob_frame(80, 200, 30, 40, 60, 90) for _ in range(5)]
         idx = find_entry_frame_index_rgb(frames, model, MIN_AREA, MAX_AREA, min_sustained_detections=3)
         assert idx is None
+
+
+class TestChangedFractionIntrusion:
+    """A light glove/bare arm against the backlit lane (Test_7 Front, 2026-10-05) is invisible to the
+    dark-blob area rule; intrusion_changed_fraction catches it."""
+
+    def _model(self):
+        return RgbBackgroundModel.build([_bg_frame() for _ in range(9)])
+
+    def _light_arm(self):
+        return _blob_frame(80, 200, 10, 70, 20, 130, value=245.0)  # 60x110 = 41% of the crop, lighter than bg
+
+    def test_light_arm_missed_by_area_rule_alone(self):
+        assert classify_frame_state_rgb(self._light_arm(), self._model(), MIN_AREA, MAX_AREA) != "intrusion"
+
+    def test_light_arm_is_intrusion_with_changed_fraction(self):
+        state = classify_frame_state_rgb(self._light_arm(), self._model(), MIN_AREA, MAX_AREA,
+                                         intrusion_changed_fraction=0.05)
+        assert state == "intrusion"
+
+    def test_mouse_alone_stays_mouse_with_changed_fraction(self):
+        frame = _blob_frame(80, 200, 30, 40, 60, 90)  # 300px = 1.9% of the crop
+        state = classify_frame_state_rgb(frame, self._model(), MIN_AREA, MAX_AREA, intrusion_changed_fraction=0.05)
+        assert state == "mouse"
+
+    def test_end_to_end_entry_after_light_arm(self):
+        model = self._model()
+        frames = [_bg_frame(), self._light_arm(), self._light_arm(),
+                  _blob_frame(80, 200, 30, 40, 60, 90), _blob_frame(80, 200, 30, 40, 62, 92),
+                  _blob_frame(80, 200, 30, 40, 64, 94)]
+        states = [classify_frame_state_rgb(f, model, MIN_AREA, MAX_AREA, intrusion_changed_fraction=0.05)
+                  for f in frames]
+        assert find_entry_index(states, min_sustained_detections=3) == 3
+
+
+class TestMinIntrusionRun:
+    def test_brief_blip_does_not_count_as_intrusion(self):
+        states = ["empty", "intrusion", "mouse", "mouse", "mouse", "mouse"]  # 1-sample blip, then a static "mouse"
+        assert find_entry_index(states, min_sustained_detections=3, min_intrusion_run=2) is None
+
+    def test_blip_then_real_placement_returns_entry_after_placement(self):
+        states = (["intrusion"] + ["mouse"] * 5          # blip + static artifact (Test_4 Front, t=14s)
+                  + ["intrusion"] * 4 + ["mouse"] * 4)   # real placement, then the mouse alone
+        assert find_entry_index(states, min_sustained_detections=3, min_intrusion_run=3) == 10
+
+    def test_default_keeps_previous_behavior(self):
+        states = ["intrusion", "mouse", "mouse", "mouse"]
+        assert find_entry_index(states, min_sustained_detections=3) == 1
+
+
+class TestEmptyLaneAndSessionEpisode:
+    def test_tiny_static_blob_is_empty_with_mouse_floor(self):
+        model = RgbBackgroundModel.build([_bg_frame() for _ in range(9)])
+        frame = _blob_frame(80, 200, 30, 33, 60, 90)  # 90px static blob = 0.56% of the crop, under a 1% floor
+        state = classify_frame_state_rgb(frame, model, 50, MAX_AREA, min_changed_fraction_for_mouse=0.01)
+        assert state == "empty"
+
+    def test_external_intrusion_opens_window(self):
+        states = ["empty", "empty", "mouse", "mouse", "mouse"]  # this lane never saw the (faint) arm
+        assert find_entry_index(states, min_sustained_detections=3) is None
+        assert find_entry_index(states, min_sustained_detections=3, intrusion_seen_from=1) == 2
+
+    def test_own_intrusion_still_resets_after_external_window(self):
+        states = ["mouse", "mouse", "intrusion", "mouse", "mouse", "mouse"]
+        assert find_entry_index(states, min_sustained_detections=3, intrusion_seen_from=0) == 3

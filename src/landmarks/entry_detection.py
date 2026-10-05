@@ -46,6 +46,9 @@ def classify_frame_state_rgb(
     min_area: int,
     max_area: int,
     intrusion_area_multiple: float = 3.0,
+    intrusion_changed_fraction: Optional[float] = None,
+    changed_px_threshold: float = 40.0,
+    min_changed_fraction_for_mouse: Optional[float] = None,
 ) -> FrameState:
     """
     Classify one RGB (track-matched-crop) frame as "empty" (no foreground
@@ -54,9 +57,29 @@ def classify_frame_state_rgb(
     hand/forearm). Widens segment_mouse_rgb's own max_area bound rather
     than narrowing it, specifically to let the oversized intrusion blob
     through so it can be recognized rather than silently discarded.
+
+    intrusion_changed_fraction (opt-in): also call it "intrusion" when more
+    than this fraction of the crop differs from the background by
+    > changed_px_threshold gray levels, in EITHER direction. The blob-area
+    rule only sees DARK foreground, so a light glove/bare arm against the
+    backlit lane can stay under max_area (Test_7 Front, 2026-10-05: arm
+    2-7.5k px vs a ~10k px mouse, so no intrusion was ever found). Measured
+    on Test_3/4/7: empty lane 0-0.2%, mouse alone 0.7-3.2%, hand/arm 5-62%.
+
+    min_changed_fraction_for_mouse (opt-in): below this changed fraction the
+    frame is "empty" even if segmentation finds a mouse-sized blob -- the
+    adaptive threshold always finds SOMETHING in an empty lane (a static
+    ~750px artifact read as "mouse" before Test_7's placement).
     """
     from .rgb_landmarks import segment_mouse_rgb, classify_mouse_blob
 
+    if intrusion_changed_fraction is not None or min_changed_fraction_for_mouse is not None:
+        changed = float((np.abs(frame.astype(np.float32) - background_model.background)
+                         > changed_px_threshold).mean())
+        if intrusion_changed_fraction is not None and changed > intrusion_changed_fraction:
+            return "intrusion"
+        if min_changed_fraction_for_mouse is not None and changed < min_changed_fraction_for_mouse:
+            return "empty"
     mask = segment_mouse_rgb(
         frame, background_model, min_area=min_area, max_area=int(max_area * intrusion_area_multiple)
     )
@@ -90,8 +113,23 @@ def classify_frame_state_thermal(
     return "intrusion" if area > max_area else "mouse"
 
 
-def find_entry_index(states: Sequence[FrameState], min_sustained_detections: int = 5) -> Optional[int]:
+def find_entry_index(
+    states: Sequence[FrameState], min_sustained_detections: int = 5, min_intrusion_run: int = 1,
+    intrusion_seen_from: Optional[int] = None,
+) -> Optional[int]:
     """
+    intrusion_seen_from: treat an intrusion as already seen from this index on
+    (external evidence, e.g. the other lane's hand placement -- both mice go in
+    during one handling episode, and an arm reaching across can be faint in one
+    lane's crop: Test_7 Back, 3-6% changed). This lane's own intrusion states
+    still reset the mouse run, so entry is still after its own handling ends.
+
+    min_intrusion_run: an intrusion only counts once that many consecutive
+    "intrusion" states are seen. A real hand placement lasts seconds; a
+    passing shadow / exposure blip is <=1s (Test_4 Front, t=14s, 2026-10-05:
+    7-12% of the lane changed for <=1s, then a static artifact read as a
+    sustained "mouse" -> a false entry 68s before the real one).
+
     Given a chronological sequence of per-frame states, return the index
     of the first frame of the sustained real "mouse" run that follows the
     MOST RECENT "intrusion" state. Returns None if no intrusion appears in
@@ -102,14 +140,20 @@ def find_entry_index(states: Sequence[FrameState], min_sustained_detections: int
     one represents the animal actually settled and left alone).
     """
     intrusion_seen = False
+    intrusion_len = 0
     run_start: Optional[int] = None
     run_len = 0
     for i, s in enumerate(states):
-        if s == "intrusion":
+        if intrusion_seen_from is not None and i >= intrusion_seen_from:
             intrusion_seen = True
+        if s == "intrusion":
+            intrusion_len += 1
+            if intrusion_len >= min_intrusion_run:
+                intrusion_seen = True
             run_start = None
             run_len = 0
             continue
+        intrusion_len = 0
         if not intrusion_seen:
             continue
         if s == "mouse":
