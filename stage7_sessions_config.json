@@ -69,8 +69,8 @@
     "bouts_csv": "bouts/qc_plots/07-28-25_4540_B_4541_F_Test3-004_Back_bout_rows.csv",
     "mouse_id": 4540,
     "track": "B",
-    "entry_time_thermal_sec": 71.0,
-    "entry_time_note": "auto-detected (Stage 1/2), not a verified anchor like the Front lanes' entry times -- a real, lower-confidence input, not yet upgraded.",
+    "entry_time_thermal_sec": 39.2,
+    "entry_time_note": "RGB entry (36.4s, mouse alone after the hands leave this lane) from scripts/detect_entry_rgb.py, confirmed by eye on its contact sheet (arm in lane 32-35s, mouse alone from 36s), converted via offset -2.8s. Updated 2026-10-05 from 71.0 (thermal tracker's own auto-detection, ~32s too late).",
     "_note": "Back lane, added 2026-08-28. Front.seq/Back.seq confirmed to be the SAME underlying recording for all 3 sessions (identical frame counts), so camera_fps and the RGB<->thermal sync_result established for Front apply directly and are reused unchanged here -- NOT re-derived, deliberately. This session's Back homography was independently calibrated and validated via validate_homography_orientation.py (confirmed as-clicked correct, real margin 4-25px vs 67-159px mirrored).",
     "sync_result": {
       "offset_sec": -2.8,
@@ -90,8 +90,8 @@
     "bouts_csv": "bouts/qc_plots/07-30-25_4540_F_4541_B_Test4-008_Back_bout_rows.csv",
     "mouse_id": 4541,
     "track": "B",
-    "entry_time_thermal_sec": 81.0,
-    "entry_time_note": "auto-detected (Stage 1/2), not a verified anchor like the Front lanes' entry times -- a real, lower-confidence input, not yet upgraded.",
+    "entry_time_thermal_sec": 82.1,
+    "entry_time_note": "RGB entry (87.6s, mouse alone after the hands leave this lane) from scripts/detect_entry_rgb.py, confirmed by eye on its contact sheet (hands placing the mouse 80-86s, mouse alone from 87s), converted via offset +5.5s. Updated 2026-10-05 from 81.0 (thermal tracker's own auto-detection).",
     "_note": "Back lane, added 2026-08-28. See Test_3_Back's _note -- same rationale applies.",
     "sync_result": {
       "offset_sec": 5.5,
@@ -111,8 +111,8 @@
     "bouts_csv": "bouts/qc_plots/08-07-25_4541_F_4540_B_Test7-020_Back_bout_rows.csv",
     "mouse_id": 4540,
     "track": "B",
-    "entry_time_thermal_sec": 132.0,
-    "entry_time_note": "auto-detected (Stage 1/2), not a verified anchor like the Front lanes' entry times -- a real, lower-confidence input, not yet upgraded.",
+    "entry_time_thermal_sec": 26.91,
+    "entry_time_note": "RGB entry (26.4s, mouse alone after the hands leave this lane) from scripts/detect_entry_rgb.py, confirmed by eye on its contact sheet (hand holding the mouse 25-26s, mouse alone from 27s), converted via offset -0.51s. Updated 2026-10-05 from 132.0 (thermal tracker's own auto-detection, ~105s too late).",
     "_note": "Back lane, added 2026-08-28. See Test_3_Back's _note -- same rationale applies.",
     "sync_result": {
       "offset_sec": -0.51,
