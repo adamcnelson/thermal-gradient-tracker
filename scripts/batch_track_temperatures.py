@@ -26,6 +26,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src import paths
 from src.arena_mask import TrackingConfig
@@ -56,6 +58,11 @@ def main():
                         help="Skip QC overlay images")
     parser.add_argument("--n-qc-images", type=int, default=20,
                         help="QC images per file (default: 20)")
+    parser.add_argument("--start-frames-csv", default=None,
+                        help="CSV with columns seq_stem,start_frame: track each listed file from that frame "
+                             "(manual_tracking_start_frame) instead of the auto-detected start")
+    parser.add_argument("--only-listed", action="store_true",
+                        help="With --start-frames-csv: process only the files it lists")
     args = parser.parse_args()
 
     log = setup_logger()
@@ -77,6 +84,17 @@ def main():
     except FileNotFoundError as e:
         log.error(str(e))
         sys.exit(1)
+
+    start_frames = None
+    if args.start_frames_csv:
+        sf = pd.read_csv(args.start_frames_csv)
+        start_frames = dict(zip(sf.seq_stem.astype(str), sf.start_frame.astype(int)))
+        log.info(f"Loaded {len(start_frames)} manual start frames from {args.start_frames_csv}")
+        if args.only_listed:
+            seq_files = [f for f in seq_files if f.stem in start_frames]
+            missing = set(start_frames) - {f.stem for f in seq_files}
+            if missing:
+                log.warning(f"{len(missing)} listed files not found under {args.input_dir}: {sorted(missing)}")
 
     if not seq_files:
         log.error(f"No .seq files found in {args.input_dir}")
@@ -103,6 +121,7 @@ def main():
         n_qc_images=args.n_qc_images,
         save_qc_summary=True,
         save_plots=True,
+        start_frames=start_frames,
     )
 
     # Print final table

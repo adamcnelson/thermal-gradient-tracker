@@ -1,0 +1,39 @@
+{
+  "sampling_interval_frames": 10,
+  "mouse_roi_radius_px": 6,
+  "floor_roi_radius_px": 6,
+  "max_floor_roi_shift_px": 80,
+  "floor_roi_search_step_px": 2,
+  "min_mouse_area_px": 100,
+  "max_mouse_area_px": 10000,
+  "training_frame_count": 50,
+  "random_seed": 123,
+  "background_n_frames": 200,
+  "segmentation_threshold_sigma": 3.0,
+  "camera_fps": 10.0,
+  "enable_local_fallback": true,
+  "local_fallback_search_radius_px": 25,
+  "local_fallback_threshold_percentile": 80.0,
+  "local_fallback_min_area_px": 30,
+  "image_height": 60,
+  "image_width": 416,
+  "arena_polygon": [
+    [
+      1,
+      4
+    ],
+    [
+      412,
+      3
+    ],
+    [
+      413,
+      57
+    ],
+    [
+      2,
+      56
+    ]
+  ],
+  "_comment": "Re-tracking config (2026-10-05): identical to tracking_config.json except camera_fps=10.0, which is what the original 2026-07-28 SLURM full run used (initial-commit config) and what all 65 inherited lanes' trajectory sync fits confirm. tracking_config.json's 8.0 (changed 2026-08-12) is wrong for these sessions but left untouched as the shared default. Only the per-lane start frame (--start-frames-csv) differs from the July run."
+}

@@ -4,7 +4,7 @@ Batch processing utilities: find .seq files and process them in sequence.
 
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 
@@ -42,9 +42,15 @@ def process_batch(
     n_qc_images: int = 20,
     save_qc_summary: bool = True,
     save_plots: bool = True,
+    start_frames: Optional[Dict[str, int]] = None,
 ) -> List[dict]:
     """
     Process a list of .seq files.
+
+    start_frames: optional {seq stem: first frame to track}. A listed file is
+    tracked with manual_tracking_start_frame set to that value instead of the
+    auto-detected start (which was found to start minutes late, or at frame 0,
+    in most of the corpus -- 2026-10-05, vs RGB-confirmed entry times).
 
     Returns a list of per-file result dicts with keys:
       seq_path, csv_path, status, error
@@ -63,9 +69,14 @@ def process_batch(
             "status": "pending",
             "error": None,
         }
+        file_config = config
+        if start_frames and seq_path.stem in start_frames:
+            file_config = config.model_copy(
+                update={"manual_tracking_start_frame": int(start_frames[seq_path.stem])})
+            log.info(f"  Manual tracking start frame: {file_config.manual_tracking_start_frame}")
 
         # Check if output already exists
-        csv_path = output_csv_path(seq_path, out_dir, config.sampling_interval_frames)
+        csv_path = output_csv_path(seq_path, out_dir, file_config.sampling_interval_frames)
         if csv_path.exists() and not overwrite:
             log.info(f"  Skipping (output exists): {csv_path.name}")
             result["status"] = "skipped"
@@ -79,11 +90,11 @@ def process_batch(
             with SeqReader(str(seq_path)) as reader:
                 frame_shape = reader.frame_shape
 
-            arena_mask = ArenaMask.from_config(config, frame_shape)
+            arena_mask = ArenaMask.from_config(file_config, frame_shape)
 
             df, csv_out, entry_info = track_file(
                 seq_path=str(seq_path),
-                config=config,
+                config=file_config,
                 arena_mask=arena_mask,
                 output_dir=str(out_dir),
                 overwrite=overwrite,
