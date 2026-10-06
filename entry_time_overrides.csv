@@ -1,0 +1,2 @@
+session,lane,rgb_entry_sec,note
+07-10-25_4540_F_4547_B,F,61.0,"2026-10-06 by eye (1Hz frames 52-71s): hand holds mouse 57-59s, arm leaving 60s, mouse alone from 61s. detect_entry_rgb.py gave 89.6s: the hand bent the L-shaped wire object in the lane during placement, a lasting change vs the session-median background that kept >5% of the lane 'changed' (31% intrusion states after entry; every other lane <=3%)."

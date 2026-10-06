@@ -9,6 +9,10 @@ the re-tracking config (tracking_config_retrack_fps10.json).
 
 Lanes without a detected entry are left out (their original tracking is kept).
 
+--overrides (default entry_time_overrides.csv, committed): rows session,lane,rgb_entry_sec,note
+replace a detected RGB entry that was checked by eye and found wrong; the thermal entry is
+recomputed with that lane's sync, (rgb - offset) / (1 + drift).
+
 Usage:
     python scripts/build_retrack_start_frames.py \\
         [--entry-times thermalFeatures/entry_detection/entry_times.csv] \\
@@ -30,9 +34,20 @@ def main():
     parser.add_argument("--entry-times", default=str(REPO / "thermalFeatures/entry_detection/entry_times.csv"))
     parser.add_argument("--output", default=str(REPO / "thermalFeatures/entry_detection/retrack_start_frames.csv"))
     parser.add_argument("--camera-fps", type=float, default=10.0)
+    parser.add_argument("--overrides", default=str(REPO / "entry_time_overrides.csv"))
     args = parser.parse_args()
 
     e = pd.read_csv(args.entry_times)
+    e["overridden"] = False
+    if args.overrides and Path(args.overrides).exists():
+        for o in pd.read_csv(args.overrides).itertuples():
+            m = (e.session == o.session) & (e.lane == o.lane)
+            if not m.any():
+                raise ValueError(f"override for unknown lane {o.session} {o.lane}")
+            e.loc[m, "rgb_entry_sec"] = o.rgb_entry_sec
+            e.loc[m, "thermal_entry_sec"] = (o.rgb_entry_sec - e.loc[m, "sync_offset_sec"]) / (1 + e.loc[m, "sync_drift"])
+            e.loc[m, "overridden"] = True
+            print(f"override: {o.session} {o.lane} rgb_entry -> {o.rgb_entry_sec}s")
     found = e[e.thermal_entry_sec.notna()]
     out = pd.DataFrame({
         "seq_stem": [f"{r.session}_{LANE_NAMES[r.lane]}" for r in found.itertuples()],
@@ -40,6 +55,7 @@ def main():
         "thermal_entry_sec": found.thermal_entry_sec.values,
         "rgb_entry_sec": found.rgb_entry_sec.values,
         "entry_via_other_lane": found.entry_via_other_lane.values,
+        "overridden": found.overridden.values,
     })
     out.to_csv(args.output, index=False)
     skipped = e[e.thermal_entry_sec.isna()]
