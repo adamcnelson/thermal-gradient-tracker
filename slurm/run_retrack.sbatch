@@ -81,6 +81,9 @@ echo "=== [2/4] re-track listed lanes :: $(date) ==="
 if [ ! -d "${RUN_DIR}/trackingOutputs" ]; then
     cp -r "${JULY_TRACKING}" "${RUN_DIR}/trackingOutputs"
 fi
+# cp from Alcova carries its ACL-derived mode bits (no POSIX access, even for the owner) -- the
+# first run died on a PermissionError stat'ing a copied CSV. Always fix, also for a pre-existing copy.
+chmod -R u+rwX "${RUN_DIR}/trackingOutputs"
 python scripts/batch_track_temperatures.py \
     --input-dir "${SEQ_INPUT_DIR}" --recursive \
     --config "${CONFIG_TRACKING}" \
@@ -103,6 +106,7 @@ echo "=== [3/4] downstream on July tracking (baseline) :: $(date) ==="
 if [ ! -d "${RUN_DIR}/trackingOutputs_july" ]; then
     cp -r "${JULY_TRACKING}" "${RUN_DIR}/trackingOutputs_july"
 fi
+chmod -R u+rwX "${RUN_DIR}/trackingOutputs_july"
 downstream "${RUN_DIR}/trackingOutputs_july" "${RUN_DIR}/baseline"
 
 echo "=== [4/4] downstream on re-tracked data :: $(date) ==="

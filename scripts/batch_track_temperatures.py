@@ -92,6 +92,16 @@ def main():
         log.info(f"Loaded {len(start_frames)} manual start frames from {args.start_frames_csv}")
         if args.only_listed:
             seq_files = [f for f in seq_files if f.stem in start_frames]
+            # Same file name in two folders would both write one output CSV. Keep the first in sorted
+            # order -- what a skip-if-exists full run tracks (croppedSeqFiles/Test_1 holds byte-identical
+            # copies of 07-08-25_4539_B_4540_F_{Front,Back}.seq in a subfolder, 2026-10-06).
+            unique = {}
+            for f in seq_files:
+                if f.stem in unique:
+                    log.warning(f"Duplicate {f.name}: using {unique[f.stem]}, skipping {f}")
+                else:
+                    unique[f.stem] = f
+            seq_files = list(unique.values())
             missing = set(start_frames) - {f.stem for f in seq_files}
             if missing:
                 log.warning(f"{len(missing)} listed files not found under {args.input_dir}: {sorted(missing)}")
