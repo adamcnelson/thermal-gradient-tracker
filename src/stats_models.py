@@ -198,3 +198,116 @@ def descriptive_summary(
         agg["note"] = PRELIMINARY_TAG
 
     return agg
+
+
+# ── DCZ vs Vehicle within each virus (repeated measures) ─────────────────────
+# Sign convention for everything below: DCZ − Vehicle (positive = higher under DCZ).
+# The pooled lmm_*_injection tables above report the opposite (injection[T.Vehicle]).
+
+def paired_t_summary(dcz, vehicle) -> Dict:
+    """Paired t-test on matched per-mouse means: mean DCZ−Vehicle difference, its 95% CI, t, p."""
+    from scipy import stats as scipy_stats
+
+    d = np.asarray(dcz, dtype=float) - np.asarray(vehicle, dtype=float)
+    d = d[~np.isnan(d)]
+    n = len(d)
+    out = dict(n_mice=n, mean_diff=np.nan, sd_diff=np.nan, se_diff=np.nan, t=np.nan, df=np.nan,
+               p=np.nan, ci_lower=np.nan, ci_upper=np.nan)
+    if n == 0:
+        return out
+    out["mean_diff"] = float(d.mean())
+    if n < 2:
+        return out
+    sd = float(d.std(ddof=1))
+    se = sd / np.sqrt(n)
+    half = float(scipy_stats.t.ppf(0.975, n - 1)) * se
+    out.update(sd_diff=sd, se_diff=se, df=n - 1, ci_lower=out["mean_diff"] - half, ci_upper=out["mean_diff"] + half)
+    if se > 0:
+        t = out["mean_diff"] / se
+        out.update(t=float(t), p=float(2 * scipy_stats.t.sf(abs(t), n - 1)))
+    return out
+
+
+def per_mouse_means(df: pd.DataFrame, outcome: str) -> pd.DataFrame:
+    """mouse_id × {DCZ, Vehicle} table of per-mouse means (the spaghetti-plot points)."""
+    sub = df.dropna(subset=[outcome, "mouse_id"])
+    return sub.groupby(["mouse_id", "injection"], observed=True)[outcome].mean().unstack("injection")
+
+
+def paired_dcz_vehicle_tests(exp_df: pd.DataFrame, outcome: str) -> pd.DataFrame:
+    """
+    Per virus × bout type: paired t-test of DCZ vs Vehicle on per-mouse means, i.e. the
+    test behind each paired_dcz_vehicle_{outcome}.png panel. Only mice with both
+    conditions count. n = mice, so power is low (4 per virus here): read the CI too.
+    """
+    rows = []
+    for virus in sorted(exp_df["virus"].dropna().unique()):
+        for stat_val, stat_label in [(True, "stationary"), (False, "non_stationary")]:
+            sub = exp_df[(exp_df["virus"] == virus) & (exp_df["stationary"] == stat_val)]
+            m = per_mouse_means(sub, outcome) if not sub.empty else pd.DataFrame()
+            if {"DCZ", "Vehicle"}.issubset(m.columns):
+                m = m[["DCZ", "Vehicle"]].dropna()
+                res = paired_t_summary(m["DCZ"], m["Vehicle"])
+            else:
+                res = paired_t_summary([], [])
+            rows.append(dict(outcome=outcome, virus=virus, bout_type=stat_label, test="paired t (per-mouse means)",
+                             contrast="DCZ - Vehicle", **res))
+    return pd.DataFrame(rows)
+
+
+def _find_param(params: pd.Index, *needles: str) -> Optional[str]:
+    hits = [p for p in params if all(n in p for n in needles)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def session_level_injection_lmm(
+    exp_df: pd.DataFrame, outcome: str, session_col: str = "video_file", mouse_col: str = "mouse_id",
+) -> pd.DataFrame:
+    """
+    Per bout type: mixed model on SESSION-level means (one value per mouse × session),
+        outcome ~ injection × virus + (1 | mouse)
+    reporting the DCZ − Vehicle effect within Gi and within Gq, and the interaction
+    (Gq effect − Gi effect). The session is the unit of replication -- unlike the
+    frame-level lmm_* tables, whose ~10^5 correlated rows make every p≈0.
+
+    Same model, two parameterizations: virus + virus:injection gives each virus's DCZ
+    effect directly; injection × virus gives the interaction.
+    """
+    import statsmodels.formula.api as smf
+
+    inj = "C(injection, Treatment('Vehicle'))"
+    rows = []
+    for stat_val, stat_label in [(True, "stationary"), (False, "non_stationary")]:
+        sub = exp_df[exp_df["stationary"] == stat_val].dropna(subset=[outcome, mouse_col, session_col])
+        sess = (sub.groupby([session_col, mouse_col, "virus", "injection"], observed=True)[outcome]
+                .mean().reset_index())
+        base = dict(outcome=outcome, bout_type=stat_label, model=f"{outcome} ~ injection * virus + (1|mouse), "
+                    "session-level means", n_sessions=len(sess), n_mice=sess[mouse_col].nunique())
+        if sess["virus"].nunique() < 2 or sess["injection"].nunique() < 2 or sess[mouse_col].nunique() < 3:
+            rows.append(dict(base, term="not fitted", note="needs 2 viruses, 2 injections, >=3 mice"))
+            continue
+        try:
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                simple = smf.mixedlm(f"{outcome} ~ C(virus) + C(virus):{inj}", sess,
+                                     groups=sess[mouse_col]).fit(reml=True)
+                inter = smf.mixedlm(f"{outcome} ~ {inj} * C(virus, Treatment('Gi'))", sess,
+                                    groups=sess[mouse_col]).fit(reml=True)
+            note = "; ".join(sorted({str(w.message).split("\n")[0] for w in caught}))[:300]
+        except Exception as exc:
+            rows.append(dict(base, term="fit failed", note=str(exc)[:300]))
+            continue
+
+        terms = [(f"DCZ effect | {v}", simple, _find_param(simple.params.index, f"[{v}]", "[T.DCZ]"))
+                 for v in sorted(sess["virus"].unique())]
+        terms.append(("interaction: Gq effect - Gi effect", inter, _find_param(inter.params.index, "[T.DCZ]", ":")))
+        for label, fit, name in terms:
+            if name is None:
+                rows.append(dict(base, term=label, note="term not found"))
+                continue
+            ci = fit.conf_int().loc[name]
+            rows.append(dict(base, term=label, estimate=float(fit.params[name]), se=float(fit.bse[name]),
+                             z=float(fit.tvalues[name]), p=float(fit.pvalues[name]),
+                             ci_lower=float(ci[0]), ci_upper=float(ci[1]),
+                             converged=bool(fit.converged), note=note))
+    return pd.DataFrame(rows)

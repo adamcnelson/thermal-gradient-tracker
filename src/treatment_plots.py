@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from .stats_models import paired_t_summary
+
 PRELIMINARY_TAG = "PRELIMINARY — insufficient sample for inference"
 _PALETTE = ["#4C72B0", "#DD8452", "#55A868", "#C44E52", "#8172B2", "#937860"]
 
@@ -486,6 +488,17 @@ def plot_dcz_vehicle_paired(
                         yerr=vals.sem() if len(vals) > 1 else 0,
                         fmt="D", color="black", ms=9, capsize=5, lw=2, zorder=5,
                     )
+
+                # 4. Paired t-test on these per-mouse means (same numbers as paired_tests_dcz_vehicle.csv)
+                if {"DCZ", "Vehicle"}.issubset(mouse_means.columns):
+                    both = mouse_means[["DCZ", "Vehicle"]].dropna()
+                    res = paired_t_summary(both["DCZ"], both["Vehicle"])
+                    if res["n_mice"] >= 2:
+                        ax.text(0.02, 0.98,
+                                f"DCZ−Veh {res['mean_diff']:+.2f} [{res['ci_lower']:+.2f}, {res['ci_upper']:+.2f}]\n"
+                                f"paired t p={res['p']:.3g}, n={res['n_mice']}",
+                                transform=ax.transAxes, va="top", fontsize=7.5,
+                                bbox=dict(facecolor="white", alpha=0.7, edgecolor="none"))
 
                 ax.set_xlim(-0.4, 1.55)
 

@@ -29,6 +29,8 @@ from src.stats_models import (
     check_lmm_feasible,
     descriptive_summary,
     fit_lmm,
+    paired_dcz_vehicle_tests,
+    session_level_injection_lmm,
 )
 from src.treatment_plots import (
     plot_bout_count_by_group,
@@ -218,6 +220,27 @@ def main():
         readme_lines.append("\nPAIRED DCZ vs VEHICLE (per-mouse means, experimental phase):")
         readme_lines.append(f"  Plots: paired_dcz_vehicle_{{outcome}}.png (4 outcomes × 2×2 grid)")
         readme_lines.append(f"  Tables: paired_{{outcome}}_{{stationary|non_stationary}}.csv")
+
+        # Within-virus DCZ vs Vehicle tests (repeated measures). Sign: DCZ - Vehicle
+        # (positive = higher under DCZ) -- opposite to lmm_*_injection's injection[T.Vehicle].
+        paired_tests, session_lmms = [], []
+        for outcome in paired_outcomes:
+            if outcome in exp_df.columns:
+                paired_tests.append(paired_dcz_vehicle_tests(exp_df, outcome))
+                session_lmms.append(session_level_injection_lmm(exp_df, outcome))
+        if paired_tests:
+            pt = pd.concat(paired_tests, ignore_index=True)
+            sl = pd.concat(session_lmms, ignore_index=True)
+            pt.to_csv(str(tables_dir / "paired_tests_dcz_vehicle.csv"), index=False)
+            sl.to_csv(str(tables_dir / "session_lmm_dcz_vehicle.csv"), index=False)
+            readme_lines.append("\nDCZ vs VEHICLE WITHIN EACH VIRUS (sign: DCZ - Vehicle):")
+            readme_lines.append("  paired_tests_dcz_vehicle.csv: paired t on per-mouse means (n = mice; low power)")
+            readme_lines.append("  session_lmm_dcz_vehicle.csv: outcome ~ injection*virus + (1|mouse) on "
+                                "session-level means (primary)")
+            for r in sl[sl["term"].str.startswith(("DCZ effect", "interaction"), na=False)].itertuples():
+                readme_lines.append(
+                    f"    {r.outcome} [{r.bout_type}] {r.term}: {r.estimate:+.3f} "
+                    f"[{r.ci_lower:+.3f}, {r.ci_upper:+.3f}] p={r.p:.3g}")
 
         # Plot 6: floor temp distribution
         plot_floor_temp_distribution(master_df, str(plots_dir), factors=factors)
