@@ -35,7 +35,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
+#SBATCH --mem=48G
 #SBATCH --mail-type=ALL
 # SUBJECT TO CHANGE: filled in for Adam's MedicineBow setup (2026-10-05); per-user values
 # will move to a git-ignored slurm/local.env so each clone (Adam, Lucas) sets its own.
