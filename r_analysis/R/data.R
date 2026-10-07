@@ -5,8 +5,11 @@ library(stringr)
 library(lubridate)
 
 # Raw data lives one directory up from the repo root (see project_brief_v6.md section 1).
+# Canonical since 2026-10-06: the re-tracked run (each lane tracked from its RGB-confirmed mouse
+# entry; slurm/run_retrack.sbatch) instead of results_fullrun_mgms2_2026-07-28/bouts, whose
+# auto-detected tracking start was minutes late in most lanes or included pre-entry frames.
 RAW_DATA_DIR <- normalizePath(
-  file.path("..", "..", "SLURM_RESULTS", "results_fullrun_mgms2_2026-07-28", "bouts"),
+  file.path("..", "..", "SLURM_RESULTS", "retrack_2026-10", "retrack"),
   mustWork = FALSE
 )
 MASTER_CSV <- file.path(RAW_DATA_DIR, "master_tracking_with_metadata.csv")

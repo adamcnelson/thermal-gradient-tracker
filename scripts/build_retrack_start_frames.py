@@ -20,6 +20,7 @@ Usage:
 """
 
 import argparse
+import json
 import math
 from pathlib import Path
 
@@ -35,6 +36,10 @@ def main():
     parser.add_argument("--output", default=str(REPO / "thermalFeatures/entry_detection/retrack_start_frames.csv"))
     parser.add_argument("--camera-fps", type=float, default=10.0)
     parser.add_argument("--overrides", default=str(REPO / "entry_time_overrides.csv"))
+    parser.add_argument("--include-stage7-config", default=None,
+                        help="Also add each lane of this stage7_sessions_config.json (Test_3/4/7) not already "
+                             "listed, from its verified entry_time_thermal_sec. Frame numbering is the same in "
+                             "every crop of a recording, so these apply to the Alcova-crop .seq too.")
     args = parser.parse_args()
 
     e = pd.read_csv(args.entry_times)
@@ -57,6 +62,16 @@ def main():
         "entry_via_other_lane": found.entry_via_other_lane.values,
         "overridden": found.overridden.values,
     })
+    if args.include_stage7_config:
+        cfg = json.load(open(args.include_stage7_config))
+        extra = [dict(seq_stem=f"{e['session_label']}_{LANE_NAMES[e['track']]}",
+                      start_frame=max(0, math.ceil(e["entry_time_thermal_sec"] * args.camera_fps)),
+                      thermal_entry_sec=e["entry_time_thermal_sec"], rgb_entry_sec=float("nan"),
+                      entry_via_other_lane=False, overridden=False)
+                 for k, e in cfg.items() if not k.startswith("_")]
+        extra = [r for r in extra if r["seq_stem"] not in set(out.seq_stem)]
+        out = pd.concat([out, pd.DataFrame(extra)], ignore_index=True)
+        print(f"added {len(extra)} lanes from {args.include_stage7_config}")
     out.to_csv(args.output, index=False)
     skipped = e[e.thermal_entry_sec.isna()]
     print(f"{len(out)} lanes -> {args.output}; skipped (no entry): "

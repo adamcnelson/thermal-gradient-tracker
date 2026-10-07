@@ -12,7 +12,8 @@ Full context and rationale: `../project_brief_v6.md`.
 Raw data, one directory up from the repo root:
 
 ```
-../../SLURM_RESULTS/results_fullrun_mgms2_2026-07-28/bouts/
+../../SLURM_RESULTS/retrack_2026-10/retrack/   # re-tracked run, canonical since 2026-10-06
+                                     # (was results_fullrun_mgms2_2026-07-28/bouts/)
   master_tracking_with_metadata.csv   # frame-level, one row per sampled frame
   bout_table.csv                      # bout-level, one row per detected rest bout
 ```

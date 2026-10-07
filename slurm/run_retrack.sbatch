@@ -13,7 +13,8 @@
 # (= tracking_config.json with the camera_fps=10 that run actually used).
 #
 # Steps:
-#   1. retrack_start_frames.csv from entry_times.csv (run_entry_detection.sbatch)
+#   1. retrack_start_frames.csv from entry_times.csv (run_entry_detection.sbatch), plus the
+#      Test_3/4/7 lanes from stage7_sessions_config.json's verified entry times
 #   2. copy the July run's tracking CSVs into a NEW dir, re-track the listed
 #      lanes into it (unlisted files keep their July CSVs)
 #   3. bouts -> metadata join -> treatment analysis with TODAY's code, twice:
@@ -75,6 +76,7 @@ mkdir -p "${RUN_DIR}"
 
 echo "=== [1/4] start frames :: $(date) ==="
 python scripts/build_retrack_start_frames.py --entry-times "${ENTRY_TIMES}" \
+    --include-stage7-config "${REPO_DIR}/stage7_sessions_config.json" \
     --output "${RUN_DIR}/retrack_start_frames.csv"
 
 echo "=== [2/4] re-track listed lanes :: $(date) ==="
