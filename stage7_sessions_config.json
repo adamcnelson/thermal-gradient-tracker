@@ -9,15 +9,28 @@
     "bouts_csv": "bouts/qc_plots/07-28-25_4540_B_4541_F_Test3-004_Front_bout_rows.csv",
     "mouse_id": 4541,
     "track": "F",
-    "entry_time_thermal_sec": 34.85,
-    "entry_time_note": "RGB-confirmed entry (32.05s) converted via offset -2.8s (post camera_fps 8->10 fix)",
+    "entry_time_thermal_sec": 34.375,
+    "entry_time_note": "RGB entry 32.05s converted with the trajectory sync (offset -2.325s, drift +0.00000); was 34.85s under the anchored sync. Tracking starts at frame 349 (re-tracked 2026-10-07 from the old value) -- within 0.5s of this entry, so not re-tracked.",
     "sync_result": {
-      "offset_sec": -2.8,
+      "offset_sec": -2.325,
       "drift_slope": 0.0,
-      "r_squared": 0.999,
-      "residual_max_sec": 0.2,
+      "r_squared": NaN,
+      "residual_max_sec": NaN,
       "low_confidence": false,
-      "confidence_note": "resolved 2026-08-25: 5 real, human-verified anchor events spanning the full session (t=46-2261s thermal), fit AFTER discovering and correcting the camera_fps 8->10 error (see project memory) -- offset is now a clean constant (std=0.13s across all 5 anchors), no drift term needed. Supersedes the earlier -93.0/drift=0 value, which was compensating for the fps error, not real RGB/thermal clock drift. These anchors were all found on the FRONT lane; reused unchanged for Back (2026-08-28) since Front.seq/Back.seq are the same recording."
+      "method": "trajectory_alignment",
+      "confidence_note": "2026-10-08: switched from the hand-anchored sync (offset -2.80s, kept in previous_anchored_sync) to trajectory alignment (scripts/estimate_sync_trajectory.py, MedicineBow validation run; lanes F=-2.30s/drift-0.0000; B=-2.35s/drift-0.0000). Test: Test_7 Stage 7 with the trajectory sync cut moving-sample registration low-confidence 25%->0% (F) and 23%->0% (B), so the anchors (a handful of hand-matched events) were ~0.4-1s off. No anchor fit, so r_squared/residual_max_sec are NaN and sync_passes reads False."
+    },
+    "previous_anchored_sync": {
+      "sync_result": {
+        "offset_sec": -2.8,
+        "drift_slope": 0.0,
+        "r_squared": 0.999,
+        "residual_max_sec": 0.2,
+        "low_confidence": false,
+        "confidence_note": "resolved 2026-08-25: 5 real, human-verified anchor events spanning the full session (t=46-2261s thermal), fit AFTER discovering and correcting the camera_fps 8->10 error (see project memory) -- offset is now a clean constant (std=0.13s across all 5 anchors), no drift term needed. Supersedes the earlier -93.0/drift=0 value, which was compensating for the fps error, not real RGB/thermal clock drift. These anchors were all found on the FRONT lane; reused unchanged for Back (2026-08-28) since Front.seq/Back.seq are the same recording."
+      },
+      "entry_time_thermal_sec": 34.85,
+      "entry_time_note": "RGB-confirmed entry (32.05s) converted via offset -2.8s (post camera_fps 8->10 fix)"
     }
   },
   "Test_4": {
@@ -29,15 +42,28 @@
     "bouts_csv": "bouts/qc_plots/07-30-25_4540_F_4541_B_Test4-008_Front_bout_rows.csv",
     "mouse_id": 4540,
     "track": "F",
-    "entry_time_thermal_sec": 77.33,
-    "entry_time_note": "RGB-confirmed entry (82.83s) converted via offset +5.5s (post camera_fps 8->10 fix)",
+    "entry_time_thermal_sec": 76.911,
+    "entry_time_note": "RGB entry 82.83s converted with the trajectory sync (offset +5.900s, drift +0.00025); was 77.33s under the anchored sync. Tracking starts at frame 774 (re-tracked 2026-10-07 from the old value) -- within 0.5s of this entry, so not re-tracked.",
     "sync_result": {
-      "offset_sec": 5.5,
-      "drift_slope": 0.0,
-      "r_squared": 0.995,
-      "residual_max_sec": 0.5,
+      "offset_sec": 5.9,
+      "drift_slope": 0.00025,
+      "r_squared": NaN,
+      "residual_max_sec": NaN,
       "low_confidence": false,
-      "confidence_note": "resolved 2026-08-25: 4 real, human-verified anchor events spanning the full session (t=94-1615s thermal), fit AFTER discovering and correcting the camera_fps 8->10 error (see project memory) -- offset is now a clean constant (std=0.46s across all 4 anchors), no drift term needed. Supersedes the earlier low-confidence +11.0 value, which was itself compensating for the fps error on top of the real offset, not a genuinely unresolved sync. These anchors were all found on the FRONT lane; reused unchanged for Back (2026-08-28) since Front.seq/Back.seq are the same recording."
+      "method": "trajectory_alignment",
+      "confidence_note": "2026-10-08: switched from the hand-anchored sync (offset +5.50s, kept in previous_anchored_sync) to trajectory alignment (scripts/estimate_sync_trajectory.py, MedicineBow validation run; lanes F=+5.90s/drift+0.0002; B=+5.90s/drift+0.0002). Test: Test_7 Stage 7 with the trajectory sync cut moving-sample registration low-confidence 25%->0% (F) and 23%->0% (B), so the anchors (a handful of hand-matched events) were ~0.4-1s off. No anchor fit, so r_squared/residual_max_sec are NaN and sync_passes reads False."
+    },
+    "previous_anchored_sync": {
+      "sync_result": {
+        "offset_sec": 5.5,
+        "drift_slope": 0.0,
+        "r_squared": 0.995,
+        "residual_max_sec": 0.5,
+        "low_confidence": false,
+        "confidence_note": "resolved 2026-08-25: 4 real, human-verified anchor events spanning the full session (t=94-1615s thermal), fit AFTER discovering and correcting the camera_fps 8->10 error (see project memory) -- offset is now a clean constant (std=0.46s across all 4 anchors), no drift term needed. Supersedes the earlier low-confidence +11.0 value, which was itself compensating for the fps error on top of the real offset, not a genuinely unresolved sync. These anchors were all found on the FRONT lane; reused unchanged for Back (2026-08-28) since Front.seq/Back.seq are the same recording."
+      },
+      "entry_time_thermal_sec": 77.33,
+      "entry_time_note": "RGB-confirmed entry (82.83s) converted via offset +5.5s (post camera_fps 8->10 fix)"
     }
   },
   "Test_7": {
@@ -49,15 +75,28 @@
     "bouts_csv": "bouts/qc_plots/08-07-25_4541_F_4540_B_Test7-020_Front_bout_rows.csv",
     "mouse_id": 4541,
     "track": "F",
-    "entry_time_thermal_sec": 28.0,
-    "entry_time_note": "RGB-confirmed touchdown (27s) converted via offset -0.51s",
+    "entry_time_thermal_sec": 28.475,
+    "entry_time_note": "RGB entry 27.0s converted with the trajectory sync (offset -1.475s, drift +0.00000); was 28.0s under the anchored sync. Tracking starts at frame 280 (re-tracked 2026-10-07 from the old value) -- within 0.5s of this entry, so not re-tracked.",
     "sync_result": {
-      "offset_sec": -0.51,
+      "offset_sec": -1.475,
       "drift_slope": 0.0,
-      "r_squared": 0.9999,
-      "residual_max_sec": 0.5,
+      "r_squared": NaN,
+      "residual_max_sec": NaN,
       "low_confidence": false,
-      "confidence_note": "resolved 2026-08-26: 4 real, human-verified anchor events spanning the full session (t=28-1588s thermal). fps was already 10.0 in this session's tracking data (unlike Test_3/4, no fps correction was needed here -- confirmed via these same anchors: slope=1.00002, implied fps=10.0002). Offset resolved to a tiny near-zero constant, no drift. Homography orientation was separately disputed and resolved: Adam's direct video review initially flagged a Test_4-style 180-degree rotation, but a precise same-real-moment overlay (both centroid AND full mouse silhouette, warped through the as-clicked calibration) landed almost exactly on the real thermal mouse blob including head/tail orientation -- the as-clicked (unmirrored) calibration was confirmed correct; raw RGB-vs-thermal frames are just genuinely hard to compare by eye given the real vertical flip + differing resolution/aspect ratio + the homography's own rotation/perspective terms. These anchors were all found on the FRONT lane; reused unchanged for Back (2026-08-28) since Front.seq/Back.seq are the same recording."
+      "method": "trajectory_alignment",
+      "confidence_note": "2026-10-08: switched from the hand-anchored sync (offset -0.51s, kept in previous_anchored_sync) to trajectory alignment (scripts/estimate_sync_trajectory.py, MedicineBow validation run; lanes F=-1.45s/drift-0.0000; B=-1.50s/drift-0.0000). Test: Test_7 Stage 7 with the trajectory sync cut moving-sample registration low-confidence 25%->0% (F) and 23%->0% (B), so the anchors (a handful of hand-matched events) were ~0.4-1s off. No anchor fit, so r_squared/residual_max_sec are NaN and sync_passes reads False."
+    },
+    "previous_anchored_sync": {
+      "sync_result": {
+        "offset_sec": -0.51,
+        "drift_slope": 0.0,
+        "r_squared": 0.9999,
+        "residual_max_sec": 0.5,
+        "low_confidence": false,
+        "confidence_note": "resolved 2026-08-26: 4 real, human-verified anchor events spanning the full session (t=28-1588s thermal). fps was already 10.0 in this session's tracking data (unlike Test_3/4, no fps correction was needed here -- confirmed via these same anchors: slope=1.00002, implied fps=10.0002). Offset resolved to a tiny near-zero constant, no drift. Homography orientation was separately disputed and resolved: Adam's direct video review initially flagged a Test_4-style 180-degree rotation, but a precise same-real-moment overlay (both centroid AND full mouse silhouette, warped through the as-clicked calibration) landed almost exactly on the real thermal mouse blob including head/tail orientation -- the as-clicked (unmirrored) calibration was confirmed correct; raw RGB-vs-thermal frames are just genuinely hard to compare by eye given the real vertical flip + differing resolution/aspect ratio + the homography's own rotation/perspective terms. These anchors were all found on the FRONT lane; reused unchanged for Back (2026-08-28) since Front.seq/Back.seq are the same recording."
+      },
+      "entry_time_thermal_sec": 28.0,
+      "entry_time_note": "RGB-confirmed touchdown (27s) converted via offset -0.51s"
     }
   },
   "Test_3_Back": {
@@ -69,16 +108,29 @@
     "bouts_csv": "bouts/qc_plots/07-28-25_4540_B_4541_F_Test3-004_Back_bout_rows.csv",
     "mouse_id": 4540,
     "track": "B",
-    "entry_time_thermal_sec": 39.2,
-    "entry_time_note": "RGB entry (36.4s, mouse alone after the hands leave this lane) from scripts/detect_entry_rgb.py, confirmed by eye on its contact sheet (arm in lane 32-35s, mouse alone from 36s), converted via offset -2.8s. Updated 2026-10-05 from 71.0 (thermal tracker's own auto-detection, ~32s too late).",
+    "entry_time_thermal_sec": 38.725,
+    "entry_time_note": "RGB entry 36.4s converted with the trajectory sync (offset -2.325s, drift +0.00000); was 39.2s under the anchored sync. Tracking starts at frame 392 (re-tracked 2026-10-07 from the old value) -- within 0.5s of this entry, so not re-tracked.",
     "_note": "Back lane, added 2026-08-28. Front.seq/Back.seq confirmed to be the SAME underlying recording for all 3 sessions (identical frame counts), so camera_fps and the RGB<->thermal sync_result established for Front apply directly and are reused unchanged here -- NOT re-derived, deliberately. This session's Back homography was independently calibrated and validated via validate_homography_orientation.py (confirmed as-clicked correct, real margin 4-25px vs 67-159px mirrored).",
     "sync_result": {
-      "offset_sec": -2.8,
+      "offset_sec": -2.325,
       "drift_slope": 0.0,
-      "r_squared": 0.999,
-      "residual_max_sec": 0.2,
+      "r_squared": NaN,
+      "residual_max_sec": NaN,
       "low_confidence": false,
-      "confidence_note": "Reused unchanged from Test_3 Front -- see Test_3 entry above."
+      "method": "trajectory_alignment",
+      "confidence_note": "2026-10-08: switched from the hand-anchored sync (offset -2.80s, kept in previous_anchored_sync) to trajectory alignment (scripts/estimate_sync_trajectory.py, MedicineBow validation run; lanes F=-2.30s/drift-0.0000; B=-2.35s/drift-0.0000). Test: Test_7 Stage 7 with the trajectory sync cut moving-sample registration low-confidence 25%->0% (F) and 23%->0% (B), so the anchors (a handful of hand-matched events) were ~0.4-1s off. No anchor fit, so r_squared/residual_max_sec are NaN and sync_passes reads False."
+    },
+    "previous_anchored_sync": {
+      "sync_result": {
+        "offset_sec": -2.8,
+        "drift_slope": 0.0,
+        "r_squared": 0.999,
+        "residual_max_sec": 0.2,
+        "low_confidence": false,
+        "confidence_note": "Reused unchanged from Test_3 Front -- see Test_3 entry above."
+      },
+      "entry_time_thermal_sec": 39.2,
+      "entry_time_note": "RGB entry (36.4s, mouse alone after the hands leave this lane) from scripts/detect_entry_rgb.py, confirmed by eye on its contact sheet (arm in lane 32-35s, mouse alone from 36s), converted via offset -2.8s. Updated 2026-10-05 from 71.0 (thermal tracker's own auto-detection, ~32s too late)."
     }
   },
   "Test_4_Back": {
@@ -90,16 +142,29 @@
     "bouts_csv": "bouts/qc_plots/07-30-25_4540_F_4541_B_Test4-008_Back_bout_rows.csv",
     "mouse_id": 4541,
     "track": "B",
-    "entry_time_thermal_sec": 82.1,
-    "entry_time_note": "RGB entry (87.6s, mouse alone after the hands leave this lane) from scripts/detect_entry_rgb.py, confirmed by eye on its contact sheet (hands placing the mouse 80-86s, mouse alone from 87s), converted via offset +5.5s. Updated 2026-10-05 from 81.0 (thermal tracker's own auto-detection).",
+    "entry_time_thermal_sec": 81.68,
+    "entry_time_note": "RGB entry 87.6s converted with the trajectory sync (offset +5.900s, drift +0.00025); was 82.1s under the anchored sync. Tracking starts at frame 821 (re-tracked 2026-10-07 from the old value) -- within 0.5s of this entry, so not re-tracked.",
     "_note": "Back lane, added 2026-08-28. See Test_3_Back's _note -- same rationale applies.",
     "sync_result": {
-      "offset_sec": 5.5,
-      "drift_slope": 0.0,
-      "r_squared": 0.995,
-      "residual_max_sec": 0.5,
+      "offset_sec": 5.9,
+      "drift_slope": 0.00025,
+      "r_squared": NaN,
+      "residual_max_sec": NaN,
       "low_confidence": false,
-      "confidence_note": "Reused unchanged from Test_4 Front -- see Test_4 entry above."
+      "method": "trajectory_alignment",
+      "confidence_note": "2026-10-08: switched from the hand-anchored sync (offset +5.50s, kept in previous_anchored_sync) to trajectory alignment (scripts/estimate_sync_trajectory.py, MedicineBow validation run; lanes F=+5.90s/drift+0.0002; B=+5.90s/drift+0.0002). Test: Test_7 Stage 7 with the trajectory sync cut moving-sample registration low-confidence 25%->0% (F) and 23%->0% (B), so the anchors (a handful of hand-matched events) were ~0.4-1s off. No anchor fit, so r_squared/residual_max_sec are NaN and sync_passes reads False."
+    },
+    "previous_anchored_sync": {
+      "sync_result": {
+        "offset_sec": 5.5,
+        "drift_slope": 0.0,
+        "r_squared": 0.995,
+        "residual_max_sec": 0.5,
+        "low_confidence": false,
+        "confidence_note": "Reused unchanged from Test_4 Front -- see Test_4 entry above."
+      },
+      "entry_time_thermal_sec": 82.1,
+      "entry_time_note": "RGB entry (87.6s, mouse alone after the hands leave this lane) from scripts/detect_entry_rgb.py, confirmed by eye on its contact sheet (hands placing the mouse 80-86s, mouse alone from 87s), converted via offset +5.5s. Updated 2026-10-05 from 81.0 (thermal tracker's own auto-detection)."
     }
   },
   "Test_7_Back": {
@@ -111,16 +176,29 @@
     "bouts_csv": "bouts/qc_plots/08-07-25_4541_F_4540_B_Test7-020_Back_bout_rows.csv",
     "mouse_id": 4540,
     "track": "B",
-    "entry_time_thermal_sec": 26.91,
-    "entry_time_note": "RGB entry (26.4s, mouse alone after the hands leave this lane) from scripts/detect_entry_rgb.py, confirmed by eye on its contact sheet (hand holding the mouse 25-26s, mouse alone from 27s), converted via offset -0.51s. Updated 2026-10-05 from 132.0 (thermal tracker's own auto-detection, ~105s too late).",
+    "entry_time_thermal_sec": 27.875,
+    "entry_time_note": "RGB entry 26.4s converted with the trajectory sync (offset -1.475s, drift +0.00000); was 26.91s under the anchored sync. Tracking starts at frame 270 (re-tracked 2026-10-07 from the old value) -- within 0.5s of this entry, so not re-tracked.",
     "_note": "Back lane, added 2026-08-28. See Test_3_Back's _note -- same rationale applies.",
     "sync_result": {
-      "offset_sec": -0.51,
+      "offset_sec": -1.475,
       "drift_slope": 0.0,
-      "r_squared": 0.9999,
-      "residual_max_sec": 0.5,
+      "r_squared": NaN,
+      "residual_max_sec": NaN,
       "low_confidence": false,
-      "confidence_note": "Reused unchanged from Test_7 Front -- see Test_7 entry above."
+      "method": "trajectory_alignment",
+      "confidence_note": "2026-10-08: switched from the hand-anchored sync (offset -0.51s, kept in previous_anchored_sync) to trajectory alignment (scripts/estimate_sync_trajectory.py, MedicineBow validation run; lanes F=-1.45s/drift-0.0000; B=-1.50s/drift-0.0000). Test: Test_7 Stage 7 with the trajectory sync cut moving-sample registration low-confidence 25%->0% (F) and 23%->0% (B), so the anchors (a handful of hand-matched events) were ~0.4-1s off. No anchor fit, so r_squared/residual_max_sec are NaN and sync_passes reads False."
+    },
+    "previous_anchored_sync": {
+      "sync_result": {
+        "offset_sec": -0.51,
+        "drift_slope": 0.0,
+        "r_squared": 0.9999,
+        "residual_max_sec": 0.5,
+        "low_confidence": false,
+        "confidence_note": "Reused unchanged from Test_7 Front -- see Test_7 entry above."
+      },
+      "entry_time_thermal_sec": 26.91,
+      "entry_time_note": "RGB entry (26.4s, mouse alone after the hands leave this lane) from scripts/detect_entry_rgb.py, confirmed by eye on its contact sheet (hand holding the mouse 25-26s, mouse alone from 27s), converted via offset -0.51s. Updated 2026-10-05 from 132.0 (thermal tracker's own auto-detection, ~105s too late)."
     }
   }
 }
