@@ -34,7 +34,7 @@ from src.logging_utils import setup_logger
 from src.metadata import filter_excluded, join_landmark_metadata, load_lut
 
 
-def _join_one_kind(kind, pattern, in_dirs, lut_kept, out, overwrite, log):
+def _join_one_kind(kind, pattern, in_dirs, lut_kept, out, overwrite, log, velocity_from=None):
     master_csv = out / f"master_landmarks_with_metadata_{kind}.csv"
     report_csv = out / f"landmark_metadata_join_report_{kind}.csv"
 
@@ -61,6 +61,14 @@ def _join_one_kind(kind, pattern, in_dirs, lut_kept, out, overwrite, log):
     n_ambiguous = (report_df["status"].str.contains("ambiguous", na=False)).sum() if "status" in report_df.columns else 0
     log.info(f"  Join coverage ({kind}): matched={n_matched} unmatched={n_unmatched} ambiguous={n_ambiguous}")
 
+    if velocity_from and kind == "frame" and not master_df.empty:
+        import pandas as pd
+        from src.velocity import attach_tracking_velocity
+        trk = pd.read_csv(velocity_from, usecols=["video_file", "elapsed_time_sec", "velocity_smooth_px_s"])
+        master_df = attach_tracking_velocity(master_df, trk)
+        n = master_df["velocity_smooth_px_s"].notna().sum()
+        log.info(f"  velocity_smooth_px_s attached from {velocity_from}: {n}/{len(master_df)} rows matched")
+
     if not master_df.empty:
         master_df.to_csv(str(master_csv), index=False)
         log.info(f"  {kind} master table: {len(master_df)} rows -> {master_csv}")
@@ -82,6 +90,10 @@ def main():
                         help="Path to the metadata LUT (default: metadata/LUT_CLEAN_July6.csv under the project root)")
     parser.add_argument("--output-dir", default=None,
                         help="Output directory (default: landmark_outputs/ under the project root)")
+    parser.add_argument("--velocity-from", default=None,
+                        help="A master_tracking_with_metadata.csv (compute_velocity() already applied, e.g. the "
+                             "re-track run's) to take velocity_smooth_px_s from: added to the frame table by "
+                             "nearest same-lane timestamp within 0.5 s (src/velocity.py::attach_tracking_velocity)")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -104,7 +116,8 @@ def main():
     log.info(f"  Kept {len(lut_kept)} rows for joining")
 
     _join_one_kind("bout", "*_bout_output.csv", in_dirs, lut_kept, out, args.overwrite, log)
-    _join_one_kind("frame", "*_frame_output.csv", in_dirs, lut_kept, out, args.overwrite, log)
+    _join_one_kind("frame", "*_frame_output.csv", in_dirs, lut_kept, out, args.overwrite, log,
+                   velocity_from=args.velocity_from)
 
     log.info("\nDone.")
 

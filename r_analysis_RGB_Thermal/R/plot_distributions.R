@@ -9,12 +9,10 @@ library(ggplot2)
 # structure as r_analysis/R/plot_distributions.R, extended from 1 outcome
 # (mouse_surface_temp_mean) to the new pipeline's 3.
 #
-# velocity_smooth_px_s is NOT included here yet (brief's own 4.3 row: it
-# needs a separate per-timestamp join against trackingOutputs/*_tracking_
-# every10frames.csv via src/velocity.py::compute_velocity(), since it isn't
-# a native Stage 7 output column -- a real data-prep step, not just a plot).
-# Deferred per Adam, 2026-09-02: pick up after the full-dataset SLURM run
-# regenerates the underlying tracking CSVs anyway.
+# velocity_smooth_px_s: one distribution per virus, NOT split by stationary state -- matching
+# r_analysis/R/plot_distributions.R::plot_velocity_distribution_one(). It isn't a native Stage 7
+# column: ../scripts/join_landmark_metadata.py --velocity-from attaches it from the re-track run's
+# master_tracking_with_metadata.csv (compute_velocity() output) by nearest same-lane timestamp.
 
 .dist_outcome_labels <- c(
   mouse_surface_temp_mean_c = "Dorsal surface temperature (°C)",
@@ -50,6 +48,24 @@ plot_distribution_one <- function(frames_df, outcome, virus_val, stationary_val)
     theme_minimal()
 }
 
+plot_velocity_distribution_one <- function(frames_df, virus_val) {
+  if (!"velocity_smooth_px_s" %in% names(frames_df)) return(NULL)
+  df <- frames_df |>
+    filter(injection %in% c("DCZ", "Vehicle"), virus == virus_val, !is.na(velocity_smooth_px_s)) |>
+    mutate(injection = factor(injection, levels = c("Vehicle", "DCZ")))
+  if (nrow(df) == 0) return(NULL)
+  n_mice <- df |> distinct(injection, mouse_id) |> count(injection, name = "n_mice")
+  n_mice_label <- paste(sprintf("%s: n=%d %s", n_mice$injection, n_mice$n_mice, ifelse(n_mice$n_mice == 1, "mouse", "mice")), collapse = ", ")
+  ggplot(df, aes(x = velocity_smooth_px_s, fill = injection)) +
+    geom_histogram(aes(y = after_stat(density)), position = "identity", alpha = 0.5, bins = 40) +
+    labs(
+      title = sprintf("Velocity (px/s) distribution — %s", virus_val),
+      subtitle = sprintf("DCZ vs Vehicle; frame-level (Stage 7 samples), all states, %d samples\n%s", nrow(df), n_mice_label),
+      x = "Velocity (px/s)", y = "Density", fill = "Injection"
+    ) +
+    theme_minimal()
+}
+
 build_distribution_plots <- function(frames_df, output_dir) {
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -66,5 +82,10 @@ build_distribution_plots <- function(frames_df, output_dir) {
         ggsave(file.path(output_dir, fname), p, width = 7, height = 4.5, dpi = 150)
       }
     }
+  }
+  for (virus_val in c("Gi", "Gq")) {
+    p <- plot_velocity_distribution_one(frames_df, virus_val)
+    if (is.null(p)) { message("skip (no velocity column/data): ", virus_val); next }
+    ggsave(file.path(output_dir, sprintf("dist_velocity_smooth_px_s_%s.png", virus_val)), p, width = 7, height = 4.5, dpi = 150)
   }
 }

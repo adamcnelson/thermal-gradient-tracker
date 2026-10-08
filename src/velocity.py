@@ -133,3 +133,43 @@ def compute_velocity(df: pd.DataFrame, config: BoutsConfig) -> pd.DataFrame:
     )
 
     return out
+
+
+def attach_tracking_velocity(
+    frames: pd.DataFrame,
+    tracking: pd.DataFrame,
+    columns=("velocity_smooth_px_s",),
+    tolerance_sec: float = 0.5,
+) -> pd.DataFrame:
+    """
+    Add tracking-derived velocity columns to Stage 7 landmark frame rows.
+
+    frames:   needs session, track (F/B), elapsed_time_thermal_sec
+    tracking: needs video_file ('<session>_<Front|Back>.seq'), elapsed_time_sec, and `columns`
+              (e.g. a master_tracking_with_metadata.csv, where compute_velocity() already ran)
+
+    Each frame row gets the value of the nearest tracking sample of the same lane within
+    tolerance_sec (tracking is ~1 Hz; Stage 7 samples inside stationary bouts fall at fractional
+    seconds), else NaN. Row order and count of `frames` are preserved.
+    """
+    lane_name = {"F": "Front", "B": "Back"}
+    trk = tracking[["video_file", "elapsed_time_sec", *columns]].dropna(subset=["elapsed_time_sec"]).copy()
+    trk["_key"] = trk["video_file"].str.replace(r"\.seq$", "", regex=True)
+    out = frames.copy()
+    out["_key"] = out["session"].astype(str) + "_" + out["track"].map(lane_name)
+    out["_row"] = np.arange(len(out))
+    merged = []
+    for key, f in out.groupby("_key", sort=False):
+        t = trk[trk["_key"] == key].sort_values("elapsed_time_sec")
+        f = f.sort_values("elapsed_time_thermal_sec")
+        if t.empty:
+            m = f.copy()
+            for c in columns:
+                m[c] = np.nan
+        else:
+            m = pd.merge_asof(f, t[["elapsed_time_sec", *columns]], left_on="elapsed_time_thermal_sec",
+                              right_on="elapsed_time_sec", direction="nearest", tolerance=tolerance_sec)
+            m = m.drop(columns="elapsed_time_sec")
+        merged.append(m)
+    res = pd.concat(merged).sort_values("_row")
+    return res.drop(columns=["_key", "_row"]).reset_index(drop=True)
