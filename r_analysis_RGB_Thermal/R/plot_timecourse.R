@@ -28,6 +28,11 @@ TIMECOURSE_BIN_WIDTH_SEC <- 30
   sd(x) / sqrt(length(x))
 }
 
+.n_mice_label <- function(df) {
+  n <- df |> distinct(injection, mouse_id) |> count(injection, name = "n_mice")
+  paste(sprintf("%s: n=%d %s", n$injection, n$n_mice, ifelse(n$n_mice == 1, "mouse", "mice")), collapse = ", ")
+}
+
 .outcome_labels <- c(
   mouse_surface_temp_mean_c = "Dorsal surface temp (°C)",
   warm_spot_temp_c = "Warm-spot temp (°C)",
@@ -51,8 +56,7 @@ plot_timecourse_one <- function(frames_df, virus_val, outcome, bin_width = TIMEC
 
   if (nrow(df) == 0) return(NULL)
 
-  n_mice <- df |> distinct(injection, mouse_id) |> count(injection, name = "n_mice")
-  n_mice_label <- paste(sprintf("%s: n=%d mouse", n_mice$injection, n_mice$n_mice), collapse = ", ")
+  n_mice_label <- .n_mice_label(df)
 
   mouse_traces <- df |>
     group_by(mouse_id, injection, time_bin) |>
@@ -89,7 +93,7 @@ plot_timecourse_one <- function(frames_df, virus_val, outcome, bin_width = TIMEC
     labs(
       title = sprintf("%s — %s", ylabel, virus_val),
       subtitle = sprintf(
-        "Per-mouse traces (thin) + group mean ± SEM (%ds bins); post-craniotomy only; %s",
+        "Per-mouse traces (thin) + group mean ± SEM (%ds bins); post-craniotomy only\n%s",
         bin_width, n_mice_label
       ),
       x = "Elapsed time (thermal clock, s)", y = ylabel, color = "Injection", fill = "Injection"
@@ -97,34 +101,50 @@ plot_timecourse_one <- function(frames_df, virus_val, outcome, bin_width = TIMEC
     theme_minimal()
 }
 
-# Floor-preference time-course: bout-level (mean_floor_temp_c), NOT binned
-# the way the frame-level outcomes are -- bouts are already discrete events,
-# so each bout's mean floor temp is plotted directly at its bout_start_
-# thermal_sec, one thin per-mouse line/points per injection (no smoothing —
-# bout counts per mouse are too low in this corpus to justify a fitted
-# trend line without overclaiming).
-plot_floor_preference_timecourse <- function(bouts_df, virus_val) {
+# Floor-preference time-course: bout-level (mean_floor_temp_c), binned like the frame-level
+# outcomes -- per-mouse mean per bin, then group mean +/- SEM across mice. (The original unbinned
+# one-point-per-bout version only read sensibly with 1 mouse per cell; with 4 mice x 3-4 sessions
+# the bouts of different mice/sessions zigzag into one line.) Wider bins than the frame-level
+# plots: ~30 bouts per mouse per condition over a ~35 min session.
+FLOOR_TIMECOURSE_BIN_WIDTH_SEC <- 300
+
+plot_floor_preference_timecourse <- function(bouts_df, virus_val, bin_width = FLOOR_TIMECOURSE_BIN_WIDTH_SEC) {
   df <- bouts_df |>
     filter(virus == virus_val, injection %in% c("DCZ", "Vehicle"), !is.na(mean_floor_temp_c)) |>
-    mutate(mouse_id = as.character(mouse_id))
+    mutate(
+      mouse_id = as.character(mouse_id),
+      time_bin = floor(bout_start_thermal_sec / bin_width) * bin_width + bin_width / 2
+    )
 
   if (nrow(df) == 0) return(NULL)
 
-  n_mice <- df |> distinct(injection, mouse_id) |> count(injection, name = "n_mice")
-  n_mice_label <- paste(sprintf("%s: n=%d mouse", n_mice$injection, n_mice$n_mice), collapse = ", ")
+  mouse_traces <- df |>
+    group_by(mouse_id, injection, time_bin) |>
+    summarise(value = mean(mean_floor_temp_c, na.rm = TRUE), .groups = "drop")
 
-  ggplot(df, aes(x = bout_start_thermal_sec, y = mean_floor_temp_c, color = injection,
-                 group = interaction(mouse_id, injection))) +
-    geom_line(linewidth = 0.5, alpha = 0.4) +
-    geom_point(size = 2, alpha = 0.8) +
+  group_trace <- mouse_traces |>
+    group_by(injection, time_bin) |>
+    summarise(mean_value = mean(value, na.rm = TRUE), sem_value = .sem(value), n = n(), .groups = "drop") |>
+    mutate(ymin = mean_value - sem_value, ymax = mean_value + sem_value)
+
+  ggplot() +
+    geom_line(
+      data = mouse_traces,
+      aes(x = time_bin, y = value, color = injection, group = interaction(mouse_id, injection)),
+      linewidth = 0.3, alpha = 0.3
+    ) +
+    geom_ribbon(data = group_trace, aes(x = time_bin, ymin = ymin, ymax = ymax, fill = injection),
+                alpha = 0.2, color = NA) +
+    geom_line(data = group_trace, aes(x = time_bin, y = mean_value, color = injection), linewidth = 1.1) +
+    geom_point(data = group_trace, aes(x = time_bin, y = mean_value, color = injection), size = 1.8) +
     labs(
       title = sprintf("Floor temperature preference (bout-level) — %s", virus_val),
       subtitle = sprintf(
-        "Each point = one stationary bout's mean floor temp; post-craniotomy only; %s",
-        n_mice_label
+        "Per-mouse bin means (thin) + group mean ± SEM (%d-min bins of bout start); post-craniotomy only\n%s",
+        bin_width %/% 60, .n_mice_label(df)
       ),
       x = "Bout start (elapsed thermal time, s)", y = "Mean floor temp at bout (°C)",
-      color = "Injection"
+      color = "Injection", fill = "Injection"
     ) +
     theme_minimal()
 }

@@ -75,11 +75,22 @@ plot_dcz_vehicle_paired_one <- function(frames_df, outcome) {
     scale_x_continuous(breaks = c(0, 1), labels = c("Vehicle", "DCZ"), limits = c(-0.4, 1.55)) +
     labs(
       title = ylabel,
-      subtitle = "DCZ vs Vehicle  |  experimental phase  |  per-mouse mean (n=1 mouse per virus×injection in this corpus)",
+      subtitle = paste0("DCZ vs Vehicle  |  experimental phase  |  per-mouse mean  |  ", .paired_n_label(mouse_means)),
       x = NULL, y = ylabel, color = "Mouse ID"
     ) +
     theme_minimal() +
     theme(panel.spacing = unit(1, "lines"))
+}
+
+# "paired mice: Gi 4, Gq 4" -- mice per virus with BOTH conditions (the ones drawn as lines),
+# computed from the data rather than stated, so the label can't go stale as the corpus grows.
+.paired_n_label <- function(mouse_means) {
+  n <- mouse_means |>
+    group_by(virus, mouse_id) |>
+    summarise(both = n_distinct(injection) == 2, .groups = "drop") |>
+    group_by(virus) |>
+    summarise(n = sum(both), .groups = "drop")
+  paste0("paired mice: ", paste(n$virus, n$n, collapse = ", "))
 }
 
 # Floor preference: bout-level, no stationary axis -- facet by virus only.
@@ -125,7 +136,7 @@ plot_floor_preference_paired <- function(bouts_df) {
     scale_x_continuous(breaks = c(0, 1), labels = c("Vehicle", "DCZ"), limits = c(-0.4, 1.55)) +
     labs(
       title = "Floor temperature preference (bout-level mean)",
-      subtitle = "DCZ vs Vehicle  |  experimental phase  |  per-mouse mean across bouts (n=1 mouse per virus×injection)",
+      subtitle = paste0("DCZ vs Vehicle  |  experimental phase\nper-mouse mean across bouts  |  ", .paired_n_label(mouse_means)),
       x = NULL, y = "Mean floor temp at bout (°C)", color = "Mouse ID"
     ) +
     theme_minimal() +

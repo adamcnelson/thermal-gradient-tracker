@@ -87,7 +87,9 @@ join_craniotomy <- function(df, lut_csv = LUT_CSV, allow_unmatched = FALSE) {
 # Stage 7 already did that on the Python side, see project_v8_nonstationary_
 # sampling memory).
 load_frames <- function(with_craniotomy = TRUE) {
-  df <- read_csv(FRAME_CSV, show_col_types = FALSE)
+  # seq_name_warning is empty for all but one session, so type-guessing calls it logical and
+  # turns the LUT note into NA -- read it as text.
+  df <- read_csv(FRAME_CSV, show_col_types = FALSE, col_types = cols(seq_name_warning = col_character()))
   if (with_craniotomy) df <- join_craniotomy(df)
   df
 }
@@ -100,7 +102,9 @@ load_frames <- function(with_craniotomy = TRUE) {
 # below for why floor_temp_mean_c (frame-level) must NOT be substituted for
 # mean_floor_temp_c (bout-level) even though the names look interchangeable.
 load_bouts <- function(with_craniotomy = TRUE) {
-  df <- read_csv(BOUT_CSV, show_col_types = FALSE)
+  # seq_name_warning is empty for all but one session, so type-guessing calls it logical and
+  # turns the LUT note into NA -- read it as text.
+  df <- read_csv(BOUT_CSV, show_col_types = FALSE, col_types = cols(seq_name_warning = col_character()))
   if (with_craniotomy) df <- join_craniotomy(df)
   df
 }

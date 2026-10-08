@@ -35,7 +35,7 @@ plot_distribution_one <- function(frames_df, outcome, virus_val, stationary_val)
   if (nrow(df) == 0) return(NULL)
 
   n_mice <- df |> distinct(injection, mouse_id) |> count(injection, name = "n_mice")
-  n_mice_label <- paste(sprintf("%s: n=%d mouse", n_mice$injection, n_mice$n_mice), collapse = ", ")
+  n_mice_label <- paste(sprintf("%s: n=%d %s", n_mice$injection, n_mice$n_mice, ifelse(n_mice$n_mice == 1, "mouse", "mice")), collapse = ", ")
 
   ylabel <- .dist_outcome_labels[[outcome]]
   state_label <- ifelse(stationary_val, "rest (stationary)", "non-rest (non-stationary)")
