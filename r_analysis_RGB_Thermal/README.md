@@ -69,21 +69,13 @@ sources `R/data.R` / `R/*.R` helpers as needed.
 | `scripts/00_sanity_check.R` | — | Verifies schema, Craniotomy join coverage, and outcome-applicability counts; no figures. |
 | `scripts/01_timecourse_plots.R` | 4.1 | Per virus, per outcome, DCZ vs Vehicle mean±SEM trace over `elapsed_time_thermal_sec` (8 figures: 2 viruses × 3 frame-level outcomes + 2 viruses × floor-preference). Pre/post-craniotomy split omitted — see status note below. |
 | `scripts/02_spaghetti_paired_reproduce.R` | 4.2.1 | Per-mouse DCZ-vs-Vehicle paired points + group mean±SE, faceted virus × stationary state, per outcome (4 figures: 3 frame-level outcomes + floor pref, the last faceted virus-only). |
-| `scripts/03_spaghetti_craniotomy_and_bouts.R` | 4.2.2, 4.2.3 | Craniotomy-effect plots (combined Gi+Gq, stationary/non-stationary split) and bout-organization plots (count, duration). |
+| `scripts/03_craniotomy_plots.R` | 4.2.2 | Per-mouse Pre- vs Post-craniotomy, Gi+Gq combined, stationary/non-stationary split, 3 outcomes + floor pref (4 figures). Pre = habituation/Saline vs Post = experimental/Vehicle — **confounded with phase**, see design notes. |
 | `scripts/04_distribution_plots.R` | 4.3 | Distributions per virus, DCZ vs Vehicle, split stationary/non-stationary, per outcome (12 figures: 3 outcomes × 2 viruses × 2 states). Velocity distributions deferred — see status note below. |
-| `scripts/05_timeseries_model.R` | 4.4 | LMM (or GAMM) fit per outcome per virus, testing the time×injection interaction. |
+| `scripts/05_bout_organization_plots.R` | 4.2.3 | Bouts per session and mean bout duration, DCZ vs Vehicle, per virus (2 figures). |
+| `scripts/06_timeseries_models.R` | 4.4 | LMM per outcome × virus (time × injection on per-session 1-min bin means; floor pref per bout) + GAMM difference-smooth check → `output/models/timeseries_{lmm,gamm}.csv` + 4 figures. |
 
-**Not yet built**: `scripts/03_spaghetti_craniotomy_and_bouts.R` (4.2.2's
-craniotomy-effect half is blocked by the all-Post-craniotomy corpus issue
-below — only 4.2.3's bout-organization plots are buildable right now) and
-`scripts/05_timeseries_model.R` (4.4). Built so far: `R/data.R`,
-`scripts/00_sanity_check.R`, `R/plot_timecourse.R` + `scripts/01_timecourse_plots.R`,
-`R/plot_spaghetti.R` + `scripts/02_spaghetti_paired_reproduce.R`,
-`R/plot_distributions.R` + `scripts/04_distribution_plots.R`.
-
-**Paused here (Adam, 2026-09-02)**: a full-dataset SLURM run is coming;
-resume/optimize this R work once those fuller results exist rather than
-continuing to build against the current 6-session (2-mouse) corpus.
+All paired panels (4.2.2, 4.2.3) carry a paired t-test on per-mouse means (mice with both
+conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.csv`.
 
 ## Design notes / decisions made along the way
 
@@ -97,16 +89,16 @@ continuing to build against the current 6-session (2-mouse) corpus.
   frame level (Stage 7 already classifies it, see
   `../scripts/stage7_real_run.py`) — so `load_bouts()`/`load_frames()` are
   much thinner than their legacy equivalents.
-- **4.1's craniotomy split is omitted for now** (Adam, 2026-09-02): every
-  session in the current 6-session corpus is `craniotomy=="Post"` — no
-  pre-craniotomy data exists yet to split against. `plot_timecourse_one()`
-  doesn't facet on it; revisit once pre-craniotomy sessions are tracked.
-- **n=1 mouse per virus×injection cell** in the current corpus (2 mice
-  total, Gi=4540, Gq=4541, each seeing both DCZ and Vehicle across
-  different sessions) — group mean±SEM traces are real but SEM is
-  necessarily 0 throughout (see `.sem()`'s n<=1 case). Every time-course
-  figure's subtitle reports the real per-injection mouse count so this
-  isn't silently implied to be a larger sample.
+- **Corpus (2026-10-08)**: 38 sessions × lanes = 71 Stage 7 lanes, 8 DREADD mice (Gi 4539/4540/
+  4551/4552, Gq 4541/4547/4548/4550) + 1 no-virus mouse, 3–4 sessions per mouse per condition.
+  (Built originally on a 6-lane, 2-mouse corpus; sample-size labels are now computed from the
+  data, never hard-coded.)
+- **Craniotomy is confounded with phase**: every Pre-craniotomy session is habituation (Saline),
+  every Post session is experimental (DCZ/Vehicle). 4.1's time courses therefore stay
+  post-craniotomy only, and 4.2.2 compares Pre/Saline vs Post/Vehicle (both control
+  injections), which still mixes craniotomy with phase/experience — stated on every figure.
+  Mouse 4541 has no Pre data (its habituation sessions have no homography, so no Stage 7), so
+  4.2.2 has n=7.
 - **Velocity distributions deferred** (Adam, 2026-09-02): the brief's 4.3
   row wants `velocity_smooth_px_s` too, but it isn't a native Stage 7
   output — it needs a separate per-timestamp join against
@@ -114,23 +106,23 @@ continuing to build against the current 6-session (2-mouse) corpus.
   `src/velocity.py::compute_velocity()`, a real data-prep step rather than
   just another plot. Picking this up after the full-dataset SLURM run
   regenerates the underlying tracking CSVs anyway.
-- **§4.4's model**: brief allows an LMM (`outcome ~ elapsed_time_thermal_sec
-  * injection + (1 + elapsed_time_thermal_sec | mouse_id)`) or a GAMM
-  smooth-by-injection term if a trajectory isn't linear. Plan: start with
-  the LMM (`lme4`+`lmerTest`) for every outcome, and only reach for `mgcv`'s
-  GAMM on a specific outcome if its §4.1 time-course plot visibly isn't
-  linear — decided from what the descriptive plots actually show, not
-  committed upfront for all three outcomes.
+- **§4.4's model** (`R/model_timeseries.R`): LMM `value ~ time_c * injection + (1 + time_c |
+  mouse_id) + (1 | session_lane)`, time centred at 15 min, falling back to random intercepts
+  when the slope model is singular (recorded per row). Fitted on per-session 1-min bin means,
+  not raw ~1 Hz frames — consecutive frames are autocorrelated and would make every p tiny.
+  GAMM (`mgcv`, ordered-factor difference smooth) as a non-linearity check on every outcome.
+  First results: no robust trajectory divergence. Gi floor pref's slope difference (p=0.007)
+  is driven by the first 5 min of exploration (p=0.14 dropping bouts <5 min, 0.81 dropping
+  <10 min); what holds is Gq DCZ's offset (warmer floor, warmer dorsal), not a shape change.
 
 ## Status
 
 - [x] Project scaffold (renv, directory layout, `R/data.R`, sanity check)
-- [x] 4.1 Time-course plots (craniotomy split omitted, see design notes)
+- [x] 4.1 Time-course plots (post-craniotomy only — see design notes)
 - [x] 4.2.1 Paired DCZ/Vehicle spaghetti plots (dorsal/warm-spot/tail-ΔT + floor pref)
-- [x] 4.3 Distribution plots (dorsal/warm-spot/tail-ΔT; velocity deferred)
-- [ ] **Paused** — resume after the full-dataset SLURM run
-- [ ] 4.2.1 Reproduce paired DCZ/Vehicle spaghetti plots (dorsal/warm-spot/tail-ΔT + floor pref)
-- [ ] 4.2.2 Craniotomy-effect spaghetti plots (stationary/non-stationary split)
-- [ ] 4.2.3 Bout-organization effect plots
-- [ ] 4.3 Distribution plots
-- [ ] 4.4 Time-series model (LMM/GAMM)
+- [x] 4.2.2 Craniotomy-effect plots (Pre/Saline vs Post/Vehicle, confounded with phase)
+- [x] 4.2.3 Bout-organization plots (bouts per session, bout duration)
+- [x] 4.3 Distribution plots (dorsal/warm-spot/tail-ΔT)
+- [ ] 4.3 velocity distributions (needs the per-timestamp tracking join)
+- [x] 4.4 Time-series models (LMM + GAMM check)
+- All of the above re-run on the full 71-lane corpus, 2026-10-08.
