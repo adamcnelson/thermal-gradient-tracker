@@ -9,6 +9,8 @@ src/metadata.py::join_landmark_metadata().
 
 Usage:
     python scripts/join_landmark_metadata.py [--overwrite]
+    python scripts/join_landmark_metadata.py --landmark-dir landmark_outputs \\
+        thermalFeatures/stage7_inherited/landmark_outputs --overwrite   # all 71 lanes
 
 --landmark-dir, --metadata, and --output-dir default to the project-root-
 relative locations in src/paths.py (landmark_outputs/,
@@ -32,7 +34,7 @@ from src.logging_utils import setup_logger
 from src.metadata import filter_excluded, join_landmark_metadata, load_lut
 
 
-def _join_one_kind(kind, pattern, in_dir, lut_kept, out, overwrite, log):
+def _join_one_kind(kind, pattern, in_dirs, lut_kept, out, overwrite, log):
     master_csv = out / f"master_landmarks_with_metadata_{kind}.csv"
     report_csv = out / f"landmark_metadata_join_report_{kind}.csv"
 
@@ -41,10 +43,15 @@ def _join_one_kind(kind, pattern, in_dir, lut_kept, out, overwrite, log):
             log.error(f"{p} already exists. Use --overwrite to replace.")
             sys.exit(1)
 
-    files = sorted(in_dir.glob(pattern))
+    files = sorted(p for d in in_dirs for p in d.glob(pattern))
     if not files:
-        log.warning(f"No {kind} files found in {in_dir} matching {pattern}")
+        log.warning(f"No {kind} files found in {[str(d) for d in in_dirs]} matching {pattern}")
         return
+    names = [p.name for p in files]
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    if dupes:  # the same lane in two input dirs would be double-counted
+        log.error(f"Same {kind} file in more than one --landmark-dir: {dupes}")
+        sys.exit(1)
 
     log.info(f"\nJoining {len(files)} {kind}-level files to metadata...")
     master_df, report_df = join_landmark_metadata([str(p) for p in files], lut_kept)
@@ -66,9 +73,11 @@ def _join_one_kind(kind, pattern, in_dir, lut_kept, out, overwrite, log):
 
 def main():
     parser = argparse.ArgumentParser(description="Join Stage 7 landmark outputs to metadata LUT")
-    parser.add_argument("--landmark-dir", default=None,
-                        help="Directory of bout_output.csv/frame_output.csv files "
-                             "(default: landmark_outputs/ under the project root)")
+    parser.add_argument("--landmark-dir", nargs="+", default=None,
+                        help="One or more directories of bout_output.csv/frame_output.csv files, "
+                             "combined into one master table (default: landmark_outputs/ under the "
+                             "project root). E.g. landmark_outputs thermalFeatures/stage7_inherited/"
+                             "landmark_outputs for Test_3/4/7 + the 35 inherited sessions.")
     parser.add_argument("--metadata", default=None,
                         help="Path to the metadata LUT (default: metadata/LUT_CLEAN_July6.csv under the project root)")
     parser.add_argument("--output-dir", default=None,
@@ -78,7 +87,7 @@ def main():
 
     log = setup_logger("join_landmark_metadata")
 
-    in_dir = Path(args.landmark_dir) if args.landmark_dir else paths.LANDMARK_OUTPUTS_DIR
+    in_dirs = [Path(d) for d in args.landmark_dir] if args.landmark_dir else [paths.LANDMARK_OUTPUTS_DIR]
     metadata_path = args.metadata or str(paths.DEFAULT_METADATA_LUT)
     out = Path(args.output_dir) if args.output_dir else paths.LANDMARK_OUTPUTS_DIR
     out.mkdir(parents=True, exist_ok=True)
@@ -94,8 +103,8 @@ def main():
     log.info(f"  Excluded {len(lut_dropped)} rows (single recording / no seq name)")
     log.info(f"  Kept {len(lut_kept)} rows for joining")
 
-    _join_one_kind("bout", "*_bout_output.csv", in_dir, lut_kept, out, args.overwrite, log)
-    _join_one_kind("frame", "*_frame_output.csv", in_dir, lut_kept, out, args.overwrite, log)
+    _join_one_kind("bout", "*_bout_output.csv", in_dirs, lut_kept, out, args.overwrite, log)
+    _join_one_kind("frame", "*_frame_output.csv", in_dirs, lut_kept, out, args.overwrite, log)
 
     log.info("\nDone.")
 

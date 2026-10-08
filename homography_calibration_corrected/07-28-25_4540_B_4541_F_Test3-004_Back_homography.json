@@ -1,0 +1,137 @@
+{
+  "seq_path": "/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/croppedSeqFiles/07-28-25_Test_3/07-28-25_4540_B_4541_F_Test3-004_Back.seq",
+  "video_path": "/Users/adamnelson/Documents/ClaudeCode/ThermalGradient/Process_Jason/07-28-25_Test_3/2025-07-28_10-57-21.mp4",
+  "lane": "B",
+  "rgb_points": [
+    [
+      52,
+      456
+    ],
+    [
+      921,
+      486
+    ],
+    [
+      1767,
+      522
+    ],
+    [
+      1763,
+      631
+    ],
+    [
+      1757,
+      740
+    ],
+    [
+      916,
+      713
+    ],
+    [
+      52,
+      669
+    ],
+    [
+      55,
+      562
+    ]
+  ],
+  "thermal_points": [
+    [
+      0,
+      59
+    ],
+    [
+      208,
+      59
+    ],
+    [
+      414,
+      58
+    ],
+    [
+      414,
+      29
+    ],
+    [
+      414,
+      0
+    ],
+    [
+      207,
+      0
+    ],
+    [
+      0,
+      0
+    ],
+    [
+      0,
+      30
+    ]
+  ],
+  "H": [
+    [
+      0.2344896299406298,
+      -0.0014758948591480068,
+      -12.797912347652604
+    ],
+    [
+      0.009822600884003937,
+      -0.2613809167866125,
+      176.20591993560095
+    ],
+    [
+      -9.003395449671627e-06,
+      -2.5767002165896388e-05,
+      1.0
+    ]
+  ],
+  "rmse_px": 0.9493642185004294,
+  "residuals_px": [
+    1.0388902054915752,
+    0.22021746108059223,
+    0.584472649178632,
+    0.2877772367966282,
+    0.4236522224836902,
+    1.5693470177764963,
+    1.689741568884739,
+    0.40071050975453104
+  ],
+  "passes_acceptance": true,
+  "H_uncorrected": [
+    [
+      0.23447936187037993,
+      -0.001505281260072764,
+      -11.657445919483825
+    ],
+    [
+      0.00982499708698657,
+      -0.2613740590441321,
+      175.93977556862
+    ],
+    [
+      -9.003395449671627e-06,
+      -2.5767002165896388e-05,
+      1.0
+    ]
+  ],
+  "translation_correction_px": [
+    -1.14,
+    0.27
+  ],
+  "translation_correction_halves_px": [
+    [
+      -0.94,
+      -0.72
+    ],
+    [
+      -1.46,
+      1.4
+    ]
+  ],
+  "translation_correction_stable": true,
+  "translation_correction_n_samples": 1498,
+  "translation_correction_note": "Constant offset of the calibration, measured at the session's anchor-fitted sync (offset -2.80s, drift +0.00000) as median(thermal-native - RGB-warped centroid) over 1498 samples where both trackers agree in x; folded in as T@H. Original matrix in H_uncorrected. scripts/correct_inherited_homographies.py",
+  "source": "individual_calibration+translation_correction"
+}

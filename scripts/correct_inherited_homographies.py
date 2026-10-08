@@ -73,52 +73,94 @@ def measure_offset(t, thermal, rgb):
     return np.median(diff[agree], axis=0), halves, int(agree.sum())
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Per-lane translation correction of inherited homographies")
-    parser.add_argument("--tracking-dir", default=DEFAULT_TRACKING_DIR)
-    args = parser.parse_args()
+def correct_lane(meta, t, thermal, rgb, sync_desc, source):
+    """(corrected JSON dict, summary row) for one lane: median offset folded into H as T@H."""
+    H = np.array(meta["H"], dtype=np.float64)
+    (dx, dy), halves, n = measure_offset(t, thermal, rgb)
+    half_diff = float(np.max(np.abs(halves[0] - halves[1])))
+    stable = half_diff <= MAX_HALF_DIFF_PX
+    out = dict(meta)
+    out.update(
+        H=translate_homography(H, dx, dy).tolist(),
+        H_uncorrected=meta["H"],
+        translation_correction_px=[round(float(dx), 2), round(float(dy), 2)],
+        translation_correction_halves_px=[[round(float(v), 2) for v in h] for h in halves],
+        translation_correction_stable=bool(stable),
+        translation_correction_n_samples=n,
+        translation_correction_note=(
+            "Constant offset of the %s, measured at the session's %s as median(thermal-native - "
+            "RGB-warped centroid) over %d samples where both trackers agree in x; folded in as T@H. "
+            "Original matrix in H_uncorrected. scripts/correct_inherited_homographies.py"
+            % ("inherited base calibration" if source.startswith("inherited") else "calibration",
+               sync_desc, n)),
+        source=source,
+    )
+    row = dict(lane=meta["lane"], regime=meta.get("regime", ""), dx_px=dx, dy_px=dy,
+               dx_half1=halves[0][0], dx_half2=halves[1][0], dy_half1=halves[0][1],
+               dy_half2=halves[1][1], max_half_diff_px=half_diff, stable=stable, n_samples=n)
+    return out, row
 
+
+def inherited_lanes(tracking_dir):
+    """(homography path, meta, paired positions, sync description, session) per inherited lane."""
     sync = pd.read_csv(SYNC_DIR / "session_sync.csv").set_index("session")
-    OUT_DIR.mkdir(exist_ok=True)
-    rows = []
     for hj in sorted(SRC_DIR.glob("*_homography.json")):
         meta = json.load(open(hj))
         stem = hj.name.replace("_homography.json", "")
         session, lane = stem.rsplit("_", 1)[0], meta["lane"]
         s = sync.loc[session]
-        H = np.array(meta["H"], dtype=np.float64)
-        t, thermal, rgb = paired_positions(
-            f"{args.tracking_dir}/{stem}_tracking_every10frames.csv",
-            SYNC_DIR / "rgb_tracks" / f"{session}_{lane}_rgb_track.csv",
-            H, s.camera_fps, s.drift_slope, s.offset_sec,
-        )
-        (dx, dy), halves, n = measure_offset(t, thermal, rgb)
-        half_diff = float(np.max(np.abs(halves[0] - halves[1])))
-        stable = half_diff <= MAX_HALF_DIFF_PX
-        out = dict(meta)
-        out.update(
-            H=translate_homography(H, dx, dy).tolist(),
-            H_uncorrected=meta["H"],
-            translation_correction_px=[round(float(dx), 2), round(float(dy), 2)],
-            translation_correction_halves_px=[[round(float(v), 2) for v in h] for h in halves],
-            translation_correction_stable=bool(stable),
-            translation_correction_n_samples=n,
-            translation_correction_note=(
-                "Constant offset of the inherited base calibration, measured at the session's "
-                "trajectory sync (offset %+.2fs, drift %+.5f) as median(thermal-native - RGB-warped "
-                "centroid) over %d samples where both trackers agree in x; folded in as T@H. "
-                "Original matrix in H_uncorrected. scripts/correct_inherited_homographies.py"
-                % (s.offset_sec, s.drift_slope, n)),
-            source="inherited_base_regime+translation_correction",
-        )
-        with open(OUT_DIR / hj.name, "w") as f:
+        pos = paired_positions(f"{tracking_dir}/{stem}_tracking_every10frames.csv",
+                               SYNC_DIR / "rgb_tracks" / f"{session}_{lane}_rgb_track.csv",
+                               np.array(meta["H"], dtype=np.float64), s.camera_fps, s.drift_slope, s.offset_sec)
+        yield hj, meta, pos, "trajectory sync (offset %+.2fs, drift %+.5f)" % (s.offset_sec, s.drift_slope), session
+
+
+def stage7_config_lanes(config_path, camera_fps=10.0):
+    """Same, for the human-verified Stage 7 sessions (Test_3/4/7): each lane's own homography,
+    tracking CSV, RGB track (landmark_outputs/) and anchor-fitted sync."""
+    cfg = json.load(open(config_path))
+    for key, e in cfg.items():
+        if key.startswith("_"):
+            continue
+        hj = REPO / e["homography_json"]
+        meta = json.load(open(hj))
+        sr = e["sync_result"]
+        pos = paired_positions(REPO / e["tracking_csv"],
+                               REPO / "landmark_outputs" / f"{e['session_label']}_{e['track']}_rgb_track.csv",
+                               np.array(meta["H"], dtype=np.float64), camera_fps, sr["drift_slope"], sr["offset_sec"])
+        yield hj, meta, pos, "anchor-fitted sync (offset %+.2fs, drift %+.5f)" % (sr["offset_sec"], sr["drift_slope"]), \
+            e["session_label"]
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Per-lane translation correction of homographies")
+    parser.add_argument("--tracking-dir", default=DEFAULT_TRACKING_DIR, help="(inherited mode)")
+    parser.add_argument("--stage7-config", default=None,
+                        help="Correct the individually-calibrated homographies of this Stage 7 config "
+                             "(e.g. stage7_sessions_config.json) instead of the inherited ones")
+    parser.add_argument("--out-dir", default=None,
+                        help="Default: homography_calibration_inherited_corrected/ (inherited mode), "
+                             "homography_calibration_corrected/ (--stage7-config mode)")
+    args = parser.parse_args()
+
+    if args.stage7_config:
+        lanes, source = stage7_config_lanes(args.stage7_config), "individual_calibration+translation_correction"
+        out_dir = Path(args.out_dir or REPO / "homography_calibration_corrected")
+        summary = SYNC_DIR / "homography_corrections_stage7_config.csv"
+    else:
+        lanes, source = inherited_lanes(args.tracking_dir), "inherited_base_regime+translation_correction"
+        out_dir = Path(args.out_dir or OUT_DIR)
+        summary = SYNC_DIR / "homography_corrections.csv"
+    out_dir.mkdir(exist_ok=True)
+    rows = []
+    for hj, meta, (t, thermal, rgb), sync_desc, session in lanes:
+        out, row = correct_lane(meta, t, thermal, rgb, sync_desc, source)
+        with open(out_dir / hj.name, "w") as f:
             json.dump(out, f, indent=2)
-        rows.append(dict(session=session, lane=lane, regime=meta.get("regime", ""), dx_px=dx, dy_px=dy,
-                         dx_half1=halves[0][0], dx_half2=halves[1][0], dy_half1=halves[0][1],
-                         dy_half2=halves[1][1], max_half_diff_px=half_diff, stable=stable, n_samples=n))
+        rows.append(dict(session=session, **row))
 
     df = pd.DataFrame(rows)
-    df.to_csv(SYNC_DIR / "homography_corrections.csv", index=False)
+    df.to_csv(summary, index=False)
     print(df.groupby(["regime", "lane"]).agg(
         n=("dx_px", "size"), dx_mean=("dx_px", "mean"), dx_min=("dx_px", "min"), dx_max=("dx_px", "max"),
         dy_mean=("dy_px", "mean"), dy_min=("dy_px", "min"), dy_max=("dy_px", "max"),
@@ -128,7 +170,7 @@ def main():
     if len(unstable):
         print("\nUnstable lanes (halves disagree by >%.0fpx):" % MAX_HALF_DIFF_PX)
         print(unstable[["session", "lane", "dx_half1", "dx_half2", "dy_half1", "dy_half2"]].round(1).to_string(index=False))
-    print(f"\n{len(df)} corrected homographies -> {OUT_DIR}")
+    print(f"\n{len(df)} corrected homographies -> {out_dir}")
 
 
 if __name__ == "__main__":
