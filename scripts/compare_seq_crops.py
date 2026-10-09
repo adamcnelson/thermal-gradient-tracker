@@ -8,8 +8,12 @@ distribution of |difference| in raw ADU, and the best integer shift between the 
 mean images. For scale it also reports a typical within-frame
 spatial std of the image itself.
 
+Measured 2026-10-09 on the recover_crop gate (cluster re-crop vs the June 2026 crop of
+07-08-25_4541_B_4547_F Front): 18.8% of pixels differ, p99 2 ADU, max 5 ADU, mean 0.2 ADU, no
+shift -- same corners, OpenCV interpolation rounding only. --gate encodes that tolerance.
+
 Usage:
-    python scripts/compare_seq_crops.py A.seq B.seq [--max-frames 300]
+    python scripts/compare_seq_crops.py A.seq B.seq [--max-frames 300] [--gate]
 """
 
 import argparse
@@ -50,6 +54,11 @@ def main():
     p.add_argument("a")
     p.add_argument("b")
     p.add_argument("--max-frames", type=int, default=300)
+    p.add_argument("--gate", action="store_true",
+                   help="Exit 1 unless the files match within rounding: max |diff| <= --max-abs-adu, "
+                        "99th percentile <= --max-p99-adu, and zero spatial shift")
+    p.add_argument("--max-abs-adu", type=float, default=10.0)
+    p.add_argument("--max-p99-adu", type=float, default=3.0)
     args = p.parse_args()
 
     a, b = read_frames(args.a, args.max_frames), read_frames(args.b, args.max_frames)
@@ -68,6 +77,10 @@ def main():
     print(f"shift that realigns B onto A (x, y): ({dx:+d}, {dy:+d}) px  "
           f"(mean |diff| at best {best:.1f} vs at zero shift {zero:.1f} ADU)")
     print("verdict hint: rounding-only => |diff| <= ~2 ADU and shift ~0; different corners => large diffs and/or shift")
+    if args.gate:
+        ok = d.max() <= args.max_abs_adu and np.percentile(d, 99) <= args.max_p99_adu and (dx, dy) == (0, 0)
+        print("GATE PASS: equivalent within rounding" if ok else "GATE FAIL: differences beyond rounding")
+        sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":
