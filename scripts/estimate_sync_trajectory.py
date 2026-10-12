@@ -23,6 +23,8 @@ Usage:
     python scripts/estimate_sync_trajectory.py --jobs 8
     # reproduce the Test_3/4/7 validation
     python scripts/estimate_sync_trajectory.py --validate
+    # a subset, tracking from several runs, plus the other orientation regime's fit as a check
+    python scripts/estimate_sync_trajectory.py --sessions S1 S2 --tracking-dir RUN_A RUN_B --alt-regime-check
     # one lane
     python scripts/estimate_sync_trajectory.py --tracking-csv T.csv --rgb-track-csv R.csv --homography-json H.json
 
@@ -99,18 +101,28 @@ def _compute_rgb_track_job(video, lane, out_csv):
     return out_csv
 
 
-def inherited_lanes(tracking_dir, rgb_track_dir, rgb_video_root):
+def first_existing(dirs, name):
+    """dirs[i]/name for the first dir holding it (else the first dir's path, reported missing later)."""
+    paths = [Path(d) / name for d in dirs]
+    return str(next((p for p in paths if p.exists()), paths[0]))
+
+
+def inherited_lanes(tracking_dirs, rgb_track_dir, rgb_video_root, sessions=None):
     lanes = []
     for hj in sorted((REPO / "homography_calibration_inherited").glob("*_homography.json")):
         meta = json.load(open(hj))
         stem = hj.name.replace("_homography.json", "")  # <session>_<Front|Back>
         session = stem.rsplit("_", 1)[0]
-        # video_path was recorded on the Mac mount; keep only the part under Process_Jason/
-        video_rel = meta["video_path"].split("/Process_Jason/", 1)[1]
+        if sessions and session not in sessions:
+            continue
+        # video_path was recorded on the Mac mount; re-root the part under ThermalGradient/ at
+        # rgb_video_root's parent (most videos are under Process_Jason/, rehab ones under
+        # ThermalGradient/<date>_Rehabituation/)
+        video_rel = meta["video_path"].split("/ThermalGradient/", 1)[1]
         lanes.append(dict(
             session=session, lane=meta["lane"], homography_json=str(hj),
-            video=f"{rgb_video_root}/{video_rel}",
-            tracking_csv=f"{tracking_dir}/{stem}_tracking_every10frames.csv",
+            video=f"{Path(rgb_video_root).parent}/{video_rel}",
+            tracking_csv=first_existing(tracking_dirs, f"{stem}_tracking_every10frames.csv"),
             rgb_track_csv=str(Path(rgb_track_dir) / f"{session}_{meta['lane']}_rgb_track.csv"),
             regime=meta.get("regime", ""),
         ))
@@ -136,7 +148,16 @@ def validation_lanes(tracking_dir, rgb_track_dir, rgb_video_root):
     return lanes
 
 
-def run_batch(lanes, jobs, log):
+def alt_regime_fit(lane):
+    """Fit the lane under the OTHER orientation regime's base homography, as an orientation check:
+    the assigned regime should fit clearly better (lower loss)."""
+    from apply_hybrid_homography import BASE_HOMOGRAPHY
+    alt = next(r for r in BASE_HOMOGRAPHY if r != lane["regime"])
+    res = estimate_lane(lane["tracking_csv"], lane["rgb_track_csv"], BASE_HOMOGRAPHY[alt][lane["lane"]])
+    return {"alt_regime": alt, "alt_offset_sec": res["offset_sec"], "alt_loss": res["loss"]}
+
+
+def run_batch(lanes, jobs, log, alt_regime_check=False):
     missing = [l for l in lanes if not Path(l["rgb_track_csv"]).exists()]
     if missing:
         log.info(f"Computing {len(missing)} missing RGB tracks ({jobs} parallel)")
@@ -156,6 +177,8 @@ def run_batch(lanes, jobs, log):
         row = dict(l)
         try:
             row.update(estimate_lane(l["tracking_csv"], l["rgb_track_csv"], l["homography_json"]))
+            if alt_regime_check:
+                row.update(alt_regime_fit(l))
         except Exception as e:
             row["error"] = str(e)
         if "truth_offset_sec" in l and "offset_sec" in row:
@@ -163,7 +186,8 @@ def run_batch(lanes, jobs, log):
         log.info(f"  {l['session']} {l['lane']}: offset={row.get('offset_sec', float('nan')):+.2f}s "
                  f"fps={row.get('camera_fps', float('nan')):.0f} drift={row.get('drift_slope', float('nan')):+.4f} "
                  f"loss={row.get('loss', float('nan')):.3f} peak_ratio={row.get('peak_ratio', float('nan')):.2f} "
-                 f"{row.get('flags', '')}{row.get('error', '')}")
+                 f"{row.get('flags', '')}{row.get('error', '')}"
+                 + (f" | {row['alt_regime']}: loss={row['alt_loss']:.3f}" if "alt_loss" in row else ""))
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -174,9 +198,14 @@ def main():
     parser.add_argument("--tracking-csv")
     parser.add_argument("--rgb-track-csv")
     parser.add_argument("--homography-json")
-    parser.add_argument("--tracking-dir", default=DEFAULT_TRACKING_DIR)
+    parser.add_argument("--tracking-dir", nargs="+", default=[DEFAULT_TRACKING_DIR],
+                        help="Tracking output dir(s); each lane uses the first one holding its CSV")
     parser.add_argument("--rgb-video-root", default=DEFAULT_RGB_VIDEO_ROOT,
-                        help="Process_Jason root holding the session .mp4 folders")
+                        help="Process_Jason root holding the session .mp4 folders (its parent, "
+                             "ThermalGradient/, also roots the rehabituation folders)")
+    parser.add_argument("--sessions", nargs="+", help="Batch mode: only these sessions")
+    parser.add_argument("--alt-regime-check", action="store_true",
+                        help="Batch mode: also fit each lane under the other orientation regime's base H")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--jobs", type=int, default=4, help="Parallel RGB-track computations (batch mode)")
     args = parser.parse_args()
@@ -190,10 +219,11 @@ def main():
     rgb_track_dir = out_dir / "rgb_tracks"
     rgb_track_dir.mkdir(parents=True, exist_ok=True)
     if args.validate:
-        df = run_batch(validation_lanes(args.tracking_dir, rgb_track_dir, args.rgb_video_root), args.jobs, log)
+        df = run_batch(validation_lanes(args.tracking_dir[0], rgb_track_dir, args.rgb_video_root), args.jobs, log)
         out = out_dir / "sync_estimates_validation.csv"
     else:
-        df = run_batch(inherited_lanes(args.tracking_dir, rgb_track_dir, args.rgb_video_root), args.jobs, log)
+        lanes = inherited_lanes(args.tracking_dir, rgb_track_dir, args.rgb_video_root, args.sessions)
+        df = run_batch(lanes, args.jobs, log, args.alt_regime_check)
         out = out_dir / "sync_estimates.csv"
     df.to_csv(out, index=False)
     log.info(f"Done. {len(df)} lanes -> {out}")
