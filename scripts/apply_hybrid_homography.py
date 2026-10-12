@@ -44,6 +44,11 @@ Output:
 
 Usage:
     python scripts/apply_hybrid_homography.py [--limit N] [--lanes F,B]
+    # recovery of specific sessions (2026-10): only these, with a regime override for sessions the
+    # orientation classification left "inconclusive" (all pre-07-30 ones are the "vertical" regime --
+    # the 2-regime split held with zero exceptions on every date group tested)
+    python scripts/apply_hybrid_homography.py --sessions S1 S2 ... \
+        --regime-override 07-08-25_4541_B_4547_F=vertical --run-tag recover_2026-10
 """
 import argparse
 import json
@@ -130,7 +135,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None, help="process at most N sessions (for a quick test run)")
     parser.add_argument("--lanes", default="F,B")
+    parser.add_argument("--sessions", nargs="+", default=None,
+                        help="process only these Video_name_SEQ sessions (others untouched)")
+    parser.add_argument("--regime-override", nargs="*", default=[], metavar="SESSION=REGIME",
+                        help="use REGIME instead of the classification's flip for SESSION; recorded in the "
+                             "JSON as regime_source")
+    parser.add_argument("--run-tag", default=None,
+                        help="suffix for run_log/contact sheets, so a subset run doesn't overwrite the "
+                             "full rollout's run_log.csv (default 'subset' when --sessions is given)")
     args = parser.parse_args()
+    overrides = dict(o.split("=", 1) for o in args.regime_override)
+    tag = args.run_tag or ("subset" if args.sessions else "")
     lanes = args.lanes.split(",")
 
     orient = pd.read_csv(ORIENTATION_CSV)
@@ -149,7 +164,11 @@ def main():
         if args.limit and n_done >= args.limit:
             break
         stem = row["Video_name_SEQ"]
-        regime = row["flip"]
+        if args.sessions and stem not in args.sessions:
+            continue
+        regime = overrides.get(stem, row["flip"])
+        regime_source = (f"override ({row['flip']} in orientation_classification_final.csv)"
+                         if stem in overrides else "orientation_classification_final.csv")
         if stem in ALREADY_CALIBRATED:
             continue
         n_done += 1
@@ -183,6 +202,7 @@ def main():
                 "lane": lane,
                 "source": "inherited_base_regime",
                 "regime": regime,
+                "regime_source": regime_source,
                 "base_homography": base_path.name,
             })
             out_path = OUT_DIR / f"{stem}_{LANE_WORD[lane]}_homography.json"
@@ -212,14 +232,14 @@ def main():
             print(f"  {stem} [{lane}] regime={regime} -> rendered", flush=True)
 
     summary = pd.DataFrame(rows)
-    out_csv = QC_DIR / "run_log.csv"
+    out_csv = QC_DIR / (f"run_log_{tag}.csv" if tag else "run_log.csv")
     summary.to_csv(out_csv, index=False)
     print(f"\n{len(summary)} session-lane rows -> {out_csv}")
     print(summary["status"].value_counts())
 
     for regime, tiles in tiles_by_regime.items():
         safe_regime = regime.replace("+", "_")
-        build_contact_sheet(tiles, QC_DIR / f"contact_sheet_{safe_regime}.png")
+        build_contact_sheet(tiles, QC_DIR / f"contact_sheet_{safe_regime}{'_' + tag if tag else ''}.png")
 
 
 if __name__ == "__main__":
