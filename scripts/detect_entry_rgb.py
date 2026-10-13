@@ -19,7 +19,9 @@ Modes:
     --validate  Test_3/4/7 (both lanes), sync from stage7_sessions_config.json;
                 Front lanes compared with their human-confirmed RGB entry times
                 (Back lanes have no confirmed value -- check their contact sheets).
-    (default)   every session in thermalFeatures/trajectory_sync/session_sync.csv.
+    (default)   every session in <--sync-dir>/session_sync.csv (default
+                thermalFeatures/trajectory_sync/; the 2026-10 recovered sessions
+                have their own, thermalFeatures/recover_2026-10/trajectory_sync/).
 
 Outputs (in --output-dir, default thermalFeatures/entry_detection/):
     entry_times[_validation].csv, contact_sheets/<session>_<lane>_entry.png
@@ -173,8 +175,8 @@ def validation_jobs(rgb_root):
     return list(jobs.values())
 
 
-def batch_jobs(rgb_root):
-    sync = pd.read_csv(SYNC_DIR / "session_sync.csv").set_index("session")
+def batch_jobs(rgb_root, sync_dir=SYNC_DIR):
+    sync = pd.read_csv(Path(sync_dir) / "session_sync.csv").set_index("session")
     jobs = []
     for session, s in sync.iterrows():
         lanes = {}
@@ -182,9 +184,10 @@ def batch_jobs(rgb_root):
         for lane, name in (("F", "Front"), ("B", "Back")):
             hj = REPO / "homography_calibration_inherited" / f"{session}_{name}_homography.json"
             if hj.exists():
-                video = json.load(open(hj))["video_path"].split("/Process_Jason/", 1)[1]
+                # re-root under ThermalGradient/ (rgb_root's parent): Process_Jason/ or <date>_Rehabituation/
+                video = json.load(open(hj))["video_path"].split("/ThermalGradient/", 1)[1]
                 lanes[lane] = {}
-        jobs.append(dict(session=session, video=f"{rgb_root}/{video}", offset=s.offset_sec,
+        jobs.append(dict(session=session, video=f"{Path(rgb_root).parent}/{video}", offset=s.offset_sec,
                          drift=s.drift_slope, lanes=lanes))
     return jobs
 
@@ -223,6 +226,7 @@ def main():
     parser.add_argument("--validate", action="store_true")
     parser.add_argument("--rgb-video-root", default=DEFAULT_RGB_VIDEO_ROOT)
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
+    parser.add_argument("--sync-dir", default=str(SYNC_DIR), help="Dir with session_sync.csv (default mode)")
     parser.add_argument("--scan-sec", type=float, default=600.0, help="Seconds of video to scan from the start")
     parser.add_argument("--sample-hz", type=float, default=10.0)
     parser.add_argument("--min-sustained-sec", type=float, default=2.0)
@@ -238,7 +242,7 @@ def main():
     out_dir = Path(args.output_dir)
     for sub in ("contact_sheets", "states"):
         (out_dir / sub).mkdir(parents=True, exist_ok=True)
-    jobs = validation_jobs(args.rgb_video_root) if args.validate else batch_jobs(args.rgb_video_root)
+    jobs = validation_jobs(args.rgb_video_root) if args.validate else batch_jobs(args.rgb_video_root, args.sync_dir)
     params = (args.scan_sec, args.sample_hz, args.min_sustained_sec, args.intrusion_changed_fraction,
               args.min_intrusion_sec, str(out_dir), args.from_states)
 

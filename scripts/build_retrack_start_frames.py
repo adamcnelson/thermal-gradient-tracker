@@ -46,6 +46,9 @@ def main():
     e["overridden"] = False
     if args.overrides and Path(args.overrides).exists():
         for o in pd.read_csv(args.overrides).itertuples():
+            if o.session not in set(e.session):  # one overrides file serves several entry-detection runs
+                print(f"override skipped (session not in this run): {o.session} {o.lane}")
+                continue
             m = (e.session == o.session) & (e.lane == o.lane)
             if not m.any():
                 raise ValueError(f"override for unknown lane {o.session} {o.lane}")
