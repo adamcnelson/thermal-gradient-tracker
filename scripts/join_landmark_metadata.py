@@ -64,7 +64,11 @@ def _join_one_kind(kind, pattern, in_dirs, lut_kept, out, overwrite, log, veloci
     if velocity_from and kind == "frame" and not master_df.empty:
         import pandas as pd
         from src.velocity import attach_tracking_velocity
-        trk = pd.read_csv(velocity_from, usecols=["video_file", "elapsed_time_sec", "velocity_smooth_px_s"])
+        cols = ["video_file", "elapsed_time_sec", "velocity_smooth_px_s"]
+        parts = [pd.read_csv(f, usecols=cols) for f in velocity_from]
+        if sum(p.video_file.nunique() for p in parts) != pd.concat([p.video_file for p in parts]).nunique():
+            raise ValueError("--velocity-from files share a lane (video_file); each lane must come from one run")
+        trk = pd.concat(parts, ignore_index=True)
         master_df = attach_tracking_velocity(master_df, trk)
         n = master_df["velocity_smooth_px_s"].notna().sum()
         log.info(f"  velocity_smooth_px_s attached from {velocity_from}: {n}/{len(master_df)} rows matched")
@@ -90,8 +94,9 @@ def main():
                         help="Path to the metadata LUT (default: metadata/LUT_CLEAN_July6.csv under the project root)")
     parser.add_argument("--output-dir", default=None,
                         help="Output directory (default: landmark_outputs/ under the project root)")
-    parser.add_argument("--velocity-from", default=None,
-                        help="A master_tracking_with_metadata.csv (compute_velocity() already applied, e.g. the "
+    parser.add_argument("--velocity-from", nargs="+", default=None,
+                        help="One or more master_tracking_with_metadata.csv (no lane in two of them; "
+                             "compute_velocity() already applied, e.g. the "
                              "re-track run's) to take velocity_smooth_px_s from: added to the frame table by "
                              "nearest same-lane timestamp within 0.5 s (src/velocity.py::attach_tracking_velocity)")
     parser.add_argument("--overwrite", action="store_true")
