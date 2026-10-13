@@ -11,6 +11,10 @@ spatial std of the image itself.
 Measured 2026-10-09 on the recover_crop gate (cluster re-crop vs the June 2026 crop of
 07-08-25_4541_B_4547_F Front): 18.8% of pixels differ, p99 2 ADU, max 5 ADU, mean 0.2 ADU, no
 shift -- same corners, OpenCV interpolation rounding only. --gate encodes that tolerance.
+2026-10-13 (recover_lanes_crop, 3 Front lanes): same picture (shift 0, mean 0.22-0.26, p99 2-3,
+p99.9 5-6 ADU) but single-pixel maxima of 15-18 ADU, so the gate no longer hinges on the max:
+it checks shift, mean, p99 and p99.9, with only a loose max for gross corruption. Different
+corners give a nonzero shift and mean differences of hundreds of ADU (spatial std ~1650 ADU).
 
 Usage:
     python scripts/compare_seq_crops.py A.seq B.seq [--max-frames 300] [--gate]
@@ -55,10 +59,13 @@ def main():
     p.add_argument("b")
     p.add_argument("--max-frames", type=int, default=300)
     p.add_argument("--gate", action="store_true",
-                   help="Exit 1 unless the files match within rounding: max |diff| <= --max-abs-adu, "
-                        "99th percentile <= --max-p99-adu, and zero spatial shift")
-    p.add_argument("--max-abs-adu", type=float, default=10.0)
+                   help="Exit 1 unless the files match within rounding: zero spatial shift, mean |diff| <= "
+                        "--max-mean-adu, 99th / 99.9th percentile <= --max-p99-adu / --max-p999-adu, "
+                        "max |diff| <= --max-abs-adu")
+    p.add_argument("--max-mean-adu", type=float, default=0.5)
     p.add_argument("--max-p99-adu", type=float, default=3.0)
+    p.add_argument("--max-p999-adu", type=float, default=8.0)
+    p.add_argument("--max-abs-adu", type=float, default=50.0, help="only catches gross corruption")
     args = p.parse_args()
 
     a, b = read_frames(args.a, args.max_frames), read_frames(args.b, args.max_frames)
@@ -78,7 +85,8 @@ def main():
           f"(mean |diff| at best {best:.1f} vs at zero shift {zero:.1f} ADU)")
     print("verdict hint: rounding-only => |diff| <= ~2 ADU and shift ~0; different corners => large diffs and/or shift")
     if args.gate:
-        ok = d.max() <= args.max_abs_adu and np.percentile(d, 99) <= args.max_p99_adu and (dx, dy) == (0, 0)
+        ok = ((dx, dy) == (0, 0) and d.mean() <= args.max_mean_adu and np.percentile(d, 99) <= args.max_p99_adu
+              and np.percentile(d, 99.9) <= args.max_p999_adu and d.max() <= args.max_abs_adu)
         print("GATE PASS: equivalent within rounding" if ok else "GATE FAIL: differences beyond rounding")
         sys.exit(0 if ok else 1)
 
