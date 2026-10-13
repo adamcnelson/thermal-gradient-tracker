@@ -1,0 +1,11 @@
+seq_stem,start_frame,thermal_entry_sec,rgb_entry_sec,entry_via_other_lane,overridden
+07-08-25_4541_B_4547_F_Front,745,74.45,71.2,False,False
+07-08-25_4541_B_4547_F_Back,743,74.25,71.0,False,False
+07-11-25_4539_F_4541_B_Front,594,59.36,157.5,False,False
+07-11-25_4539_F_4541_B_Back,0,0.0,98.1,True,True
+07-22-25_4540_B_4550_F_rehabituation-003_Front,395,39.45,37.0,False,False
+07-22-25_4540_B_4550_F_rehabituation-003_Back,676,67.55,65.1,False,False
+07-22-25_4548_B_4539_F_rehabituation-002_Front,1702,170.12,173.2,False,False
+07-22-25_4548_B_4539_F_rehabituation-002_Back,868,86.72,89.8,True,False
+07-23-25_4541_B_4551_F_rehabituation-001_Front,445,44.44,43.0,False,False
+07-23-25_4541_B_4551_F_rehabituation-001_Back,424,42.34,40.9,False,False
