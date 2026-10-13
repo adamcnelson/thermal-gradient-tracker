@@ -89,16 +89,20 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
   frame level (Stage 7 already classifies it, see
   `../scripts/stage7_real_run.py`) — so `load_bouts()`/`load_frames()` are
   much thinner than their legacy equivalents.
-- **Corpus (2026-10-08)**: 38 sessions × lanes = 71 Stage 7 lanes, 8 DREADD mice (Gi 4539/4540/
+- **Corpus (2026-10-13)**: 43 sessions × lanes = 81 Stage 7 lanes, 8 DREADD mice (Gi 4539/4540/
   4551/4552, Gq 4541/4547/4548/4550) + 1 no-virus mouse, 3–4 sessions per mouse per condition.
+  The 10 lanes added on 2026-10-13 are recovered sessions (thermalFeatures/recover_2026-10/):
+  4541's two habituation sessions (07-08, 07-11) and three post-craniotomy rehabituation
+  sessions (Post/Saline). The rehab `.seq` names carry wrong mouse IDs (LUT note); the LUT's are used.
   (Built originally on a 6-lane, 2-mouse corpus; sample-size labels are now computed from the
   data, never hard-coded.)
 - **Craniotomy is confounded with phase**: every Pre-craniotomy session is habituation (Saline),
   every Post session is experimental (DCZ/Vehicle). 4.1's time courses therefore stay
   post-craniotomy only, and 4.2.2 compares Pre/Saline vs Post/Vehicle (both control
   injections), which still mixes craniotomy with phase/experience — stated on every figure.
-  Mouse 4541 has no Pre data (its habituation sessions have no homography, so no Stage 7), so
-  4.2.2 has n=7.
+  4.2.2 has n=8 (4541's habituation sessions were recovered 2026-10-13). The rehabituation
+  sessions (Post/Saline, 6 mice) would allow Pre/Saline vs Post/Saline -- same injection on both
+  sides -- but are not used yet; no other figure uses Saline rows either.
 - **Velocity** (`velocity_smooth_px_s`) isn't a native Stage 7 column. `../scripts/join_landmark_metadata.py
   --velocity-from <master_tracking_with_metadata.csv>` attaches it to the frame table from the re-track
   run (compute_velocity() output), nearest same-lane timestamp within 0.5 s: 98.2% of rows; the rest
@@ -123,4 +127,4 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
 - [x] 4.3 Distribution plots (dorsal/warm-spot/tail-ΔT)
 - [x] 4.3 velocity distributions (velocity joined via `join_landmark_metadata.py --velocity-from`)
 - [x] 4.4 Time-series models (LMM + GAMM check)
-- All of the above re-run on the full 71-lane corpus, 2026-10-08.
+- All of the above re-run on the full 81-lane corpus, 2026-10-13 (only 4.2.2 changed: n 7 → 8).
