@@ -69,7 +69,7 @@ sources `R/data.R` / `R/*.R` helpers as needed.
 | `scripts/00_sanity_check.R` | — | Verifies schema, Craniotomy join coverage, and outcome-applicability counts; no figures. |
 | `scripts/01_timecourse_plots.R` | 4.1 | Per virus, per outcome, DCZ vs Vehicle mean±SEM trace over `elapsed_time_thermal_sec` (8 figures: 2 viruses × 3 frame-level outcomes + 2 viruses × floor-preference). Pre/post-craniotomy split omitted — see status note below. |
 | `scripts/02_spaghetti_paired_reproduce.R` | 4.2.1 | Per-mouse DCZ-vs-Vehicle paired points + group mean±SE, faceted virus × stationary state, per outcome (4 figures: 3 frame-level outcomes + floor pref, the last faceted virus-only). |
-| `scripts/03_craniotomy_plots.R` | 4.2.2 | Per-mouse Pre- vs Post-craniotomy, Gi+Gq combined, stationary/non-stationary split, 3 outcomes + floor pref (4 figures). Pre = habituation/Saline vs Post = experimental/Vehicle — **confounded with phase**, see design notes. |
+| `scripts/03_craniotomy_plots.R` | 4.2.2 | Per-mouse Pre- vs Post-craniotomy, Gi+Gq combined, stationary/non-stationary split, 3 outcomes + floor pref, two contrasts (8 figures): `craniotomy_*` Pre = habituation/Saline vs Post = experimental/Vehicle (n=8); `craniotomy_saline_*` vs Post = rehabituation/Saline (n=6). Both **confounded with time/experience**, see design notes. |
 | `scripts/04_distribution_plots.R` | 4.3 | Distributions per virus, DCZ vs Vehicle, split stationary/non-stationary, per outcome (12 figures: 3 outcomes × 2 viruses × 2 states). Plus velocity per virus (2 figures). |
 | `scripts/05_bout_organization_plots.R` | 4.2.3 | Bouts per session and mean bout duration, DCZ vs Vehicle, per virus (2 figures). |
 | `scripts/06_timeseries_models.R` | 4.4 | LMM per outcome × virus (time × injection on per-session 1-min bin means; floor pref per bout) + GAMM difference-smooth check → `output/models/timeseries_{lmm,gamm}.csv` + 4 figures. |
@@ -100,9 +100,11 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
   every Post session is experimental (DCZ/Vehicle). 4.1's time courses therefore stay
   post-craniotomy only, and 4.2.2 compares Pre/Saline vs Post/Vehicle (both control
   injections), which still mixes craniotomy with phase/experience — stated on every figure.
-  4.2.2 has n=8 (4541's habituation sessions were recovered 2026-10-13). The rehabituation
-  sessions (Post/Saline, 6 mice) would allow Pre/Saline vs Post/Saline -- same injection on both
-  sides -- but are not used yet; no other figure uses Saline rows either.
+  4.2.2 has n=8 (4541's habituation sessions were recovered 2026-10-13). A second 4.2.2 set,
+  `craniotomy_saline_*`, uses the recovered rehabituation sessions as Post (Post/Saline, n=6
+  mice; 4551/4552's rehab session is unrecoverable): the same injection on both sides, so only
+  craniotomy + time/experience differ. First result (2026-10-13): nothing significant in either
+  contrast; 4540/4541 swing far more than the other mice. No other figure uses Saline rows.
 - **Velocity** (`velocity_smooth_px_s`) isn't a native Stage 7 column. `../scripts/join_landmark_metadata.py
   --velocity-from <master_tracking_with_metadata.csv>` attaches it to the frame table from the re-track
   run (compute_velocity() output), nearest same-lane timestamp within 0.5 s: 98.2% of rows; the rest
@@ -122,7 +124,7 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
 - [x] Project scaffold (renv, directory layout, `R/data.R`, sanity check)
 - [x] 4.1 Time-course plots (post-craniotomy only — see design notes)
 - [x] 4.2.1 Paired DCZ/Vehicle spaghetti plots (dorsal/warm-spot/tail-ΔT + floor pref)
-- [x] 4.2.2 Craniotomy-effect plots (Pre/Saline vs Post/Vehicle, confounded with phase)
+- [x] 4.2.2 Craniotomy-effect plots (Pre/Saline vs Post/Vehicle, and vs Post/Saline rehab; both confounded with time)
 - [x] 4.2.3 Bout-organization plots (bouts per session, bout duration)
 - [x] 4.3 Distribution plots (dorsal/warm-spot/tail-ΔT)
 - [x] 4.3 velocity distributions (velocity joined via `join_landmark_metadata.py --velocity-from`)
