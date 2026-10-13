@@ -13,7 +13,9 @@ inherited-homography lane, from the products built for them -- never by hand:
   bouts_csv       split out of <retrack-dir>/retrack/bout_table.csv into per-lane
                   <bouts-out-dir>/<stem>_bout_rows.csv (same columns as compute_bouts.py's
                   per-file sidecar, which Stage 7 reads)
-  seq / video     re-rooted from the homography JSON's recorded paths
+  seq / video     re-rooted from the homography JSON's recorded paths. rgb_video_relpath is
+                  relative to Stage 7's --rgb-video-root (Process_Jason/); rehabituation videos
+                  live beside it (ThermalGradient/<date>_Rehabituation/), so theirs start "../".
   mouse_id        from <retrack-dir>/retrack/metadata_join_report.csv (the LUT join the main analysis
                   uses), so Stage 7 and the analysis always agree. The ID parsed from the session label
                   (<id>_F / <id>_B) is only a cross-check: where it differs, the entry carries
@@ -50,6 +52,12 @@ def mouse_id_for_lane(session_label: str, lane: str) -> int:
     return ids[0]
 
 
+def rgb_video_relpath(recorded: str) -> str:
+    """Path relative to Process_Jason/ (Stage 7's --rgb-video-root), from the recorded absolute path."""
+    under_tg = recorded.split("/ThermalGradient/", 1)[1]
+    return under_tg.split("Process_Jason/", 1)[1] if under_tg.startswith("Process_Jason/") else f"../{under_tg}"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Build Stage 7 config for inherited-homography lanes")
     parser.add_argument("--repo-dir", default=str(REPO))
@@ -59,6 +67,7 @@ def main():
     parser.add_argument("--sync-json", default="thermalFeatures/trajectory_sync/session_sync_results.json")
     parser.add_argument("--bouts-out-dir", default="thermalFeatures/stage7_inherited/bouts")
     parser.add_argument("--output", default="thermalFeatures/stage7_inherited/stage7_sessions_config_inherited.json")
+    parser.add_argument("--sessions", nargs="+", help="Only these sessions (e.g. the 2026-10 recovered ones)")
     args = parser.parse_args()
 
     repo = Path(args.repo_dir)
@@ -82,7 +91,7 @@ def main():
         meta = json.load(open(hj))
         stem = hj.name.replace("_homography.json", "")
         session, lane = stem.rsplit("_", 1)[0], meta["lane"]
-        if session in human:
+        if session in human or (args.sessions and session not in args.sessions):
             continue
         if session not in sync:
             problems.append(f"{stem}: no session sync")
@@ -103,7 +112,7 @@ def main():
         config[f"{session}_{lane}"] = dict(
             session_label=session,
             thermal_seq_relpath=meta["seq_path"].split("/croppedSeqFiles/", 1)[1],
-            rgb_video_relpath=meta["video_path"].split("/Process_Jason/", 1)[1],
+            rgb_video_relpath=rgb_video_relpath(meta["video_path"]),
             homography_json=rel(hj.relative_to(repo)),
             tracking_csv=f"{args.retrack_dir}/trackingOutputs/{stem}_tracking_every10frames.csv",
             bouts_csv=bouts_rel,
