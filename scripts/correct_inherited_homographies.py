@@ -24,6 +24,8 @@ never modified:
 
 Usage:
     python scripts/correct_inherited_homographies.py [--tracking-dir ...]
+    # a subset with its own sync dir (e.g. the 2026-10 recovered sessions), tracking from several runs
+    python scripts/correct_inherited_homographies.py --sessions S1 S2 --sync-dir DIR --tracking-dir RUN_A RUN_B
 """
 
 import argparse
@@ -101,16 +103,24 @@ def correct_lane(meta, t, thermal, rgb, sync_desc, source):
     return out, row
 
 
-def inherited_lanes(tracking_dir):
-    """(homography path, meta, paired positions, sync description, session) per inherited lane."""
-    sync = pd.read_csv(SYNC_DIR / "session_sync.csv").set_index("session")
+def inherited_lanes(tracking_dirs, sync_dir=SYNC_DIR, sessions=None):
+    """(homography path, meta, paired positions, sync description, session) per inherited lane.
+    Each lane's tracking CSV comes from the first of tracking_dirs that holds it."""
+    sync = pd.read_csv(Path(sync_dir) / "session_sync.csv").set_index("session")
     for hj in sorted(SRC_DIR.glob("*_homography.json")):
         meta = json.load(open(hj))
         stem = hj.name.replace("_homography.json", "")
         session, lane = stem.rsplit("_", 1)[0], meta["lane"]
+        if sessions and session not in sessions:
+            continue
+        if session not in sync.index:  # synced elsewhere (e.g. recovered sessions have their own sync dir)
+            print(f"skip {stem}: no sync in {sync_dir}")
+            continue
         s = sync.loc[session]
-        pos = paired_positions(f"{tracking_dir}/{stem}_tracking_every10frames.csv",
-                               SYNC_DIR / "rgb_tracks" / f"{session}_{lane}_rgb_track.csv",
+        name = f"{stem}_tracking_every10frames.csv"
+        tracking = next((Path(d) / name for d in tracking_dirs if (Path(d) / name).exists()),
+                        Path(tracking_dirs[0]) / name)
+        pos = paired_positions(tracking, Path(sync_dir) / "rgb_tracks" / f"{session}_{lane}_rgb_track.csv",
                                np.array(meta["H"], dtype=np.float64), s.camera_fps, s.drift_slope, s.offset_sec)
         yield hj, meta, pos, "trajectory sync (offset %+.2fs, drift %+.5f)" % (s.offset_sec, s.drift_slope), session
 
@@ -134,7 +144,11 @@ def stage7_config_lanes(config_path, camera_fps=10.0):
 
 def main():
     parser = argparse.ArgumentParser(description="Per-lane translation correction of homographies")
-    parser.add_argument("--tracking-dir", default=DEFAULT_TRACKING_DIR, help="(inherited mode)")
+    parser.add_argument("--tracking-dir", nargs="+", default=[DEFAULT_TRACKING_DIR],
+                        help="(inherited mode) one or more; each lane uses the first holding its CSV")
+    parser.add_argument("--sync-dir", default=str(SYNC_DIR),
+                        help="(inherited mode) dir with session_sync.csv + rgb_tracks/; the summary CSV goes here")
+    parser.add_argument("--sessions", nargs="+", help="(inherited mode) only these sessions")
     parser.add_argument("--stage7-config", default=None,
                         help="Correct the individually-calibrated homographies of this Stage 7 config "
                              "(e.g. stage7_sessions_config.json) instead of the inherited ones")
@@ -148,9 +162,10 @@ def main():
         out_dir = Path(args.out_dir or REPO / "homography_calibration_corrected")
         summary = SYNC_DIR / "homography_corrections_stage7_config.csv"
     else:
-        lanes, source = inherited_lanes(args.tracking_dir), "inherited_base_regime+translation_correction"
+        lanes = inherited_lanes(args.tracking_dir, args.sync_dir, args.sessions)
+        source = "inherited_base_regime+translation_correction"
         out_dir = Path(args.out_dir or OUT_DIR)
-        summary = SYNC_DIR / "homography_corrections.csv"
+        summary = Path(args.sync_dir) / "homography_corrections.csv"
     out_dir.mkdir(exist_ok=True)
     rows = []
     for hj, meta, (t, thermal, rgb), sync_desc, session in lanes:
