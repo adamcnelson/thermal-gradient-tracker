@@ -52,15 +52,19 @@ def alcova_path(recorded: str, marker: str, root: str) -> str:
     return f"{root}/{recorded.split(marker, 1)[1]}"
 
 
-def lane_inputs(session, lane, tracking_dir, homography_dir="homography_calibration_inherited"):
+def lane_inputs(session, lane, tracking_dirs, homography_dir="homography_calibration_inherited"):
     hj = REPO / homography_dir / f"{session}_{LANE_NAMES[lane]}_homography.json"
     meta = json.load(open(hj))
+    name = f"{session}_{LANE_NAMES[lane]}_tracking_every10frames.csv"
+    tracking = next((Path(d) / name for d in tracking_dirs if (Path(d) / name).exists()),
+                    Path(tracking_dirs[0]) / name)
     return dict(
         H=np.array(meta["H"], dtype=np.float64),
         H_uncorrected=np.array(meta.get("H_uncorrected", meta["H"]), dtype=np.float64),
         seq=alcova_path(meta["seq_path"], "/croppedSeqFiles/", f"{ALCOVA_TG}/croppedSeqFiles"),
-        video=alcova_path(meta["video_path"], "/Process_Jason/", f"{ALCOVA_TG}/Process_Jason"),
-        tracking=f"{tracking_dir}/{session}_{LANE_NAMES[lane]}_tracking_every10frames.csv",
+        # under ThermalGradient/: Process_Jason/ for most, <date>_Rehabituation/ for rehab sessions
+        video=alcova_path(meta["video_path"], "/ThermalGradient/", ALCOVA_TG),
+        tracking=str(tracking),
         rgb_track=SYNC_DIR / "rgb_tracks" / f"{session}_{lane}_rgb_track.csv",
     )
 
@@ -228,21 +232,26 @@ def render_session(session, sess_row, lane_rows, tracking_dir, out_dir,
 
 
 def main():
-    global ALCOVA_TG
+    global ALCOVA_TG, SYNC_DIR
     parser = argparse.ArgumentParser(description="Render sync QC figures")
     parser.add_argument("--sessions", nargs="*", default=[])
     parser.add_argument("--review", action="store_true", help="All low-confidence / needs-review sessions")
     parser.add_argument("--alcova-root", default=ALCOVA_TG,
                         help="ThermalGradient dir on Alcova (MedicineBow: /cluster/alcova/bedfordlab/ThermalGradient)")
-    parser.add_argument("--tracking-dir", default=None, help="Default: <alcova-root>/" + TRACKING_RUN)
-    parser.add_argument("--output-dir", default=str(SYNC_DIR / "qc"))
+    parser.add_argument("--tracking-dir", nargs="+", default=None,
+                        help="Default: <alcova-root>/" + TRACKING_RUN + "; with several, each lane uses the "
+                             "first holding its CSV")
+    parser.add_argument("--sync-dir", default=str(SYNC_DIR),
+                        help="Dir with session_sync.csv, sync_estimates.csv and rgb_tracks/")
+    parser.add_argument("--output-dir", default=None, help="Default: <sync-dir>/qc")
     parser.add_argument("--homography-dir", default="homography_calibration_inherited",
                         help="Repo-relative dir of homography JSONs to overlay with")
     parser.add_argument("--compare-uncorrected", action="store_true",
                         help="Overlay the H_uncorrected outline (yellow) instead of the competing offset")
     args = parser.parse_args()
     ALCOVA_TG = args.alcova_root  # read by lane_inputs() for the .seq / .mp4 roots
-    args.tracking_dir = args.tracking_dir or f"{ALCOVA_TG}/{TRACKING_RUN}"
+    args.tracking_dir = args.tracking_dir or [f"{ALCOVA_TG}/{TRACKING_RUN}"]
+    SYNC_DIR = Path(args.sync_dir)  # read by lane_inputs() for rgb_tracks/
 
     sess = pd.read_csv(SYNC_DIR / "session_sync.csv").set_index("session")
     lanes = pd.read_csv(SYNC_DIR / "sync_estimates.csv")
@@ -250,7 +259,7 @@ def main():
     if args.review:
         names += [s for s, r in sess.iterrows()
                   if r.low_confidence or (isinstance(r.review_reasons, str) and r.review_reasons)]
-    out_dir = Path(args.output_dir)
+    out_dir = Path(args.output_dir or SYNC_DIR / "qc")
     out_dir.mkdir(parents=True, exist_ok=True)
     for s in dict.fromkeys(names):
         out = render_session(s, sess.loc[s], lanes[lanes.session == s].sort_values("lane", ascending=False),
