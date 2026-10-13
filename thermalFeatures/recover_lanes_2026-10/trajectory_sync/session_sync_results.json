@@ -1,0 +1,50 @@
+{
+  "07-30-25_4548_F_4551_B_Test4-007": {
+    "offset_sec": -4.8,
+    "drift_slope": 0.0005,
+    "r_squared": NaN,
+    "residual_max_sec": NaN,
+    "low_confidence": false,
+    "confidence_note": "trajectory alignment (scripts/estimate_sync_trajectory.py, sync_estimates.csv); mean of 1 lane(s): B=-4.80s/drift+0.0005. No anchor fit, so r_squared/residual_max_sec are NaN and sync_passes reads False. Method validated on Test_3/4/7 (6 lanes within 1s of human anchors). Needs review: single_lane.",
+    "method": "trajectory_alignment",
+    "camera_fps": 10.0,
+    "lane_spread_sec": null,
+    "review_reasons": "single_lane"
+  },
+  "08-08-25_4552_F_4547_B_Test7-022": {
+    "offset_sec": -1.2,
+    "drift_slope": 0.0005,
+    "r_squared": NaN,
+    "residual_max_sec": NaN,
+    "low_confidence": false,
+    "confidence_note": "trajectory alignment (scripts/estimate_sync_trajectory.py, sync_estimates.csv); mean of 1 lane(s): F=-1.20s/drift+0.0005. No anchor fit, so r_squared/residual_max_sec are NaN and sync_passes reads False. Method validated on Test_3/4/7 (6 lanes within 1s of human anchors). Needs review: single_lane.",
+    "method": "trajectory_alignment",
+    "camera_fps": 10.0,
+    "lane_spread_sec": null,
+    "review_reasons": "single_lane"
+  },
+  "08-11-25_4548_F_4551_B_Test8-026": {
+    "offset_sec": -3.1,
+    "drift_slope": 0.00075,
+    "r_squared": NaN,
+    "residual_max_sec": NaN,
+    "low_confidence": false,
+    "confidence_note": "trajectory alignment (scripts/estimate_sync_trajectory.py, sync_estimates.csv); mean of 1 lane(s): F=-3.10s/drift+0.0007. No anchor fit, so r_squared/residual_max_sec are NaN and sync_passes reads False. Method validated on Test_3/4/7 (6 lanes within 1s of human anchors). Needs review: single_lane.",
+    "method": "trajectory_alignment",
+    "camera_fps": 10.0,
+    "lane_spread_sec": null,
+    "review_reasons": "single_lane"
+  },
+  "08-21-25_4548_F_4551_B_Test10-002": {
+    "offset_sec": 2.4,
+    "drift_slope": 0.00075,
+    "r_squared": NaN,
+    "residual_max_sec": NaN,
+    "low_confidence": false,
+    "confidence_note": "trajectory alignment (scripts/estimate_sync_trajectory.py, sync_estimates.csv); mean of 1 lane(s): F=+2.40s/drift+0.0007. No anchor fit, so r_squared/residual_max_sec are NaN and sync_passes reads False. Method validated on Test_3/4/7 (6 lanes within 1s of human anchors). Needs review: single_lane.",
+    "method": "trajectory_alignment",
+    "camera_fps": 10.0,
+    "lane_spread_sec": null,
+    "review_reasons": "single_lane"
+  }
+}

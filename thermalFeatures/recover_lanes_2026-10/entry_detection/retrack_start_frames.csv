@@ -1,0 +1,5 @@
+seq_stem,start_frame,thermal_entry_sec,rgb_entry_sec,entry_via_other_lane,overridden
+07-30-25_4548_F_4551_B_Test4-007_Front,753,75.26,70.5,False,False
+08-08-25_4552_F_4547_B_Test7-022_Back,279,27.89,26.7,True,False
+08-11-25_4548_F_4551_B_Test8-026_Back,166,16.59,13.5,False,False
+08-21-25_4548_F_4551_B_Test10-002_Back,118,11.79,14.2,False,False
