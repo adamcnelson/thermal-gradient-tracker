@@ -57,7 +57,7 @@ plot_paired_generic <- function(mouse_means, facet_vars = character(0), title, y
               size = 2.8, inherit.aes = FALSE, lineheight = 0.9) +
     scale_x_continuous(breaks = c(0, 1), labels = lv, limits = c(-0.4, 1.55)) +
     scale_y_continuous(expand = expansion(mult = c(0.05, 0.25))) +
-    labs(title = title, subtitle = subtitle, x = NULL, y = ylabel, color = "Mouse ID") +
+    labs(title = title, subtitle = subtitle, x = NULL, y = ylabel, color = "Mouse ID", caption = window_caption()) +
     theme_minimal() +
     theme(panel.spacing = unit(1, "lines"))
   if (!is.null(facet_formula)) p <- p + facet_grid(facet_formula)

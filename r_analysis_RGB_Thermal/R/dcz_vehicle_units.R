@@ -8,10 +8,28 @@ library(ggplot2)
 DCZ_VEHICLE_OUTCOME_LABELS <- c(
   mouse_surface_temp_mean_c = "Dorsal surface temperature (°C)",
   warm_spot_temp_c = "Warm-spot temperature (°C)",
-  tail_delta_t_c = "Tail ΔT (°C)"
+  tail_delta_t_c = "Tail ΔT (°C)",
+  velocity_smooth_px_s = "Velocity (px/s)"
 )
 
+# Outcomes that also get a stationary + non-stationary combined ("all states") figure, with the
+# short name used in its filename/title. Velocity's all-states figure comes from the tracking
+# instead (tracking_activity.R), not from Stage 7 samples.
+ALL_STATES_OUTCOMES <- c(mouse_surface_temp_mean_c = "dorsal")
+
 STATE_LEVELS <- c("Stationary", "Non-stationary")
+
+# Outcomes drawn as one figure per stationary state instead of one figure faceted by state:
+# velocity is ~1 px/s at rest vs ~14 moving, so a shared axis flattens the stationary panel.
+SPLIT_STATE_OUTCOMES <- "velocity_smooth_px_s"
+STATE_FILE_SUFFIX <- c(Stationary = "stationary", `Non-stationary` = "nonstationary")
+
+# Figures to draw for an outcome: list(state = NULL, suffix = "") for one faceted figure, or one
+# entry per state for SPLIT_STATE_OUTCOMES.
+state_figures <- function(outcome) {
+  if (!outcome %in% SPLIT_STATE_OUTCOMES) return(list(list(state = NULL, suffix = "")))
+  lapply(STATE_LEVELS, function(s) list(state = s, suffix = paste0("_", STATE_FILE_SUFFIX[[s]])))
+}
 COMBINED_STATE <- "Stationary + non-stationary (time-weighted)"
 
 dcz_vehicle_subset <- function(df) {
@@ -32,32 +50,35 @@ mouse_colors <- function(df) {
   setNames(ids$col, ids$mouse_id)
 }
 
+EXPERIMENT_KEYS <- c("virus", "mouse_id", "injection", "craniotomy", "nestlet", "session", "track")
+
 # One row per experiment (session x lane) x stationary state: mean of the outcome's valid samples.
-experiment_means_frame <- function(frames_df, outcome) {
-  dcz_vehicle_subset(frames_df) |>
+# `subset` picks the sessions (default: post-craniotomy DCZ/Vehicle).
+experiment_means_frame <- function(frames_df, outcome, subset = dcz_vehicle_subset) {
+  subset(frames_df) |>
     filter_for_outcome(outcome) |>
     mutate(state = factor(ifelse(stationary, "Stationary", "Non-stationary"), levels = STATE_LEVELS)) |>
-    group_by(virus, mouse_id, injection, nestlet, session, track, state) |>
+    group_by(across(all_of(c(EXPERIMENT_KEYS, "state")))) |>
     summarise(value = mean(.data[[outcome]]), n_samples = n(), .groups = "drop")
 }
 
-# Dorsal, stationary + non-stationary combined. Not a pooled sample mean: stationary samples are
-# ~13 s apart and non-stationary 1 s apart, so pooling would just return the non-stationary mean.
+# Stationary + non-stationary combined (dorsal, velocity). Not a pooled sample mean: stationary
+# samples are ~13 s apart and non-stationary 1 s apart, so pooling would just return the
+# non-stationary mean.
 # Each state's experiment mean is weighted by the time spent in it: stationary time = sum of
 # bout durations (bout table); non-stationary time = number of 1 Hz non-stationary samples
 # (counted before the outcome filter). If an experiment has a measured mean for only one state,
 # that mean is used as-is.
-experiment_means_dorsal_combined <- function(frames_df, bouts_df) {
-  outcome <- "mouse_surface_temp_mean_c"
+experiment_means_all_states <- function(frames_df, bouts_df, outcome, subset = dcz_vehicle_subset) {
   key <- c("session", "track")
-  stat_time <- dcz_vehicle_subset(bouts_df) |>
+  stat_time <- subset(bouts_df) |>
     group_by(across(all_of(key))) |>
     summarise(t_stat = sum(bout_end_thermal_sec - bout_start_thermal_sec), .groups = "drop")
-  nonstat_time <- dcz_vehicle_subset(frames_df) |>
+  nonstat_time <- subset(frames_df) |>
     filter(!stationary) |>
     count(across(all_of(key)), name = "t_nonstat")
 
-  experiment_means_frame(frames_df, outcome) |>
+  experiment_means_frame(frames_df, outcome, subset) |>
     select(-n_samples) |>
     tidyr::pivot_wider(names_from = state, values_from = value) |>
     left_join(stat_time, by = key) |>
@@ -71,7 +92,7 @@ experiment_means_dorsal_combined <- function(frames_df, bouts_df) {
       ),
       state = factor(COMBINED_STATE)
     ) |>
-    select(virus, mouse_id, injection, nestlet, session, track, state, value)
+    select(all_of(EXPERIMENT_KEYS), state, value)
 }
 
 # Floor preference: one row per experiment, mean of its bouts' mean_floor_temp_c.

@@ -14,6 +14,76 @@ BOUT_CSV <- file.path(LANDMARK_DIR, "master_landmarks_with_metadata_bout.csv")
 FRAME_CSV <- file.path(LANDMARK_DIR, "master_landmarks_with_metadata_frame.csv")
 LUT_CSV <- file.path("..", "metadata", "LUT_CLEAN_July6.csv")
 
+# ── Analysis window ──────────────────────────────────────────────────────────
+#
+# Sessions differ in length (Stage 7's last sample ranges 593-2398 s after arena entry), which
+# matters for totals like distance travelled. With env var ANALYSIS_WINDOW_SEC set (e.g. 1750),
+# every lane is cut to [entry, entry + window] and lanes whose last Stage 7 sample falls short
+# of entry + window are dropped entirely, so every remaining session is the same length; figures
+# go to output/<window>s_post_entry/ instead of output/. Unset = whole sessions, output/.
+# Entry times are the human-verified ones Stage 7 itself used (STAGE7_CONFIGS).
+ANALYSIS_WINDOW_SEC <- as.numeric(Sys.getenv("ANALYSIS_WINDOW_SEC", "Inf"))
+
+STAGE7_CONFIGS <- file.path("..", c(
+  "stage7_sessions_config.json",
+  "thermalFeatures/stage7_inherited/stage7_sessions_config_inherited.json",
+  "thermalFeatures/recover_2026-10/stage7/stage7_sessions_config_recover.json",
+  "thermalFeatures/recover_lanes_2026-10/stage7/stage7_sessions_config_recover_lanes.json"
+))
+
+output_root <- function() {
+  if (is.finite(ANALYSIS_WINDOW_SEC)) file.path("output", sprintf("%gs_post_entry", ANALYSIS_WINDOW_SEC)) else "output"
+}
+
+# Figure caption naming the window; NULL (no caption) for whole sessions.
+window_caption <- function() {
+  if (is.finite(ANALYSIS_WINDOW_SEC)) sprintf("Window: arena entry to entry + %g s; shorter sessions excluded", ANALYSIS_WINDOW_SEC) else NULL
+}
+
+load_entry_times <- function(paths = STAGE7_CONFIGS) {
+  bind_rows(lapply(paths, function(p) {
+    # Python's json writes NaN/Infinity (in fit statistics); strict JSON parsers reject them.
+    txt <- paste(readLines(p, warn = FALSE), collapse = "\n")
+    txt <- gsub("(?<=[:\\[,\\s])-?(NaN|Infinity)(?=\\s*[,\\]}])", "null", txt, perl = TRUE)
+    cfg <- jsonlite::fromJSON(txt, simplifyVector = FALSE)
+    cfg <- cfg[!startsWith(names(cfg), "_")]
+    tibble(session = vapply(cfg, `[[`, "", "session_label"),
+           track = vapply(cfg, `[[`, "", "track"),
+           entry_time_thermal_sec = vapply(cfg, function(x) as.numeric(x$entry_time_thermal_sec), 0))
+  }))
+}
+
+# One row per lane: entry time, last Stage 7 sample, and whether it covers the analysis window.
+lane_window <- function() {
+  last <- read_csv(FRAME_CSV, show_col_types = FALSE,
+                   col_select = c("session", "track", "elapsed_time_thermal_sec")) |>
+    group_by(session, track) |>
+    summarise(last_sample_s = max(elapsed_time_thermal_sec), .groups = "drop")
+  lanes <- left_join(last, load_entry_times(), by = c("session", "track"))
+  if (anyNA(lanes$entry_time_thermal_sec)) {
+    stop("lane_window: no Stage 7 entry time for ",
+         paste(lanes$session[is.na(lanes$entry_time_thermal_sec)], collapse = ", "))
+  }
+  lanes |> mutate(covers_window = last_sample_s >= entry_time_thermal_sec + ANALYSIS_WINDOW_SEC)
+}
+
+# Adds entry_time_thermal_sec; with a finite window, drops lanes that don't cover it and rows
+# after entry + window. time_col is the row's time; bouts starting before the cut are kept
+# with their end clipped to it (their bout-level averages still include the post-cut part --
+# at most one bout per lane).
+apply_window <- function(df, time_col) {
+  lanes <- lane_window()
+  df <- df |> inner_join(lanes |> select(session, track, entry_time_thermal_sec, covers_window),
+                         by = c("session", "track"))
+  if (is.finite(ANALYSIS_WINDOW_SEC)) {
+    df <- df |> filter(covers_window, .data[[time_col]] <= entry_time_thermal_sec + ANALYSIS_WINDOW_SEC)
+    if ("bout_end_thermal_sec" %in% names(df)) {
+      df <- df |> mutate(bout_end_thermal_sec = pmin(bout_end_thermal_sec, entry_time_thermal_sec + ANALYSIS_WINDOW_SEC))
+    }
+  }
+  df |> select(-covers_window)
+}
+
 # ── Craniotomy lookup ────────────────────────────────────────────────────────
 #
 # Craniotomy is a per-(Mouse_ID, Date) LUT property, not selected by the
@@ -120,7 +190,7 @@ load_frames <- function(with_craniotomy = TRUE) {
   # turns the LUT note into NA -- read it as text.
   df <- read_csv(FRAME_CSV, show_col_types = FALSE, col_types = cols(seq_name_warning = col_character()))
   if (with_craniotomy) df <- join_craniotomy(df)
-  join_nestlet(df)
+  join_nestlet(df) |> apply_window("elapsed_time_thermal_sec")
 }
 
 # ── Bout-level data ──────────────────────────────────────────────────────────
@@ -135,7 +205,7 @@ load_bouts <- function(with_craniotomy = TRUE) {
   # turns the LUT note into NA -- read it as text.
   df <- read_csv(BOUT_CSV, show_col_types = FALSE, col_types = cols(seq_name_warning = col_character()))
   if (with_craniotomy) df <- join_craniotomy(df)
-  join_nestlet(df)
+  join_nestlet(df) |> apply_window("bout_start_thermal_sec")
 }
 
 # ── Outcome applicability (project_brief_v8.md §1 / §4's filtering-
@@ -163,7 +233,12 @@ load_bouts <- function(with_craniotomy = TRUE) {
 # the mouse choose to rest at"). Floor-preference plots stay bout-level
 # (mean_floor_temp_c, gradient_zone), never substitute the frame-level column
 # just because the name is similar.
-OUTCOME_COLS <- c("dorsal_mean_c", "mouse_surface_temp_mean_c", "warm_spot_temp_c", "tail_delta_t_c")
+#
+#   - velocity_smooth_px_s (frame level, attached from the re-track run by
+#     join_landmark_metadata.py --velocity-from) -- non-NA only; NaN where the
+#     tracking itself was QC-flagged.
+OUTCOME_COLS <- c("dorsal_mean_c", "mouse_surface_temp_mean_c", "warm_spot_temp_c", "tail_delta_t_c",
+                  "velocity_smooth_px_s")
 
 filter_for_outcome <- function(df, outcome) {
   stopifnot(outcome %in% OUTCOME_COLS)

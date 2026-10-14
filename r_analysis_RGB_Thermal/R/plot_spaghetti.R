@@ -9,6 +9,7 @@ library(ggplot2)
 # frame-level feature outcomes + floor preference (stationary bouts, and while moving).
 #
 # One figure per virus x outcome (Gi and Gq are separate files), faceted by stationary state
+# (velocity: one file per state, see SPLIT_STATE_OUTCOMES)
 # for the 3 frame-level outcomes, plus a dorsal figure combining both states (time-weighted,
 # see dcz_vehicle_units.R). Floor preference is bout-level (a bout already IS stationary time),
 # so it has no state facet. Every figure is drawn for each nestlet tier (NESTLET_TIERS) into
@@ -45,7 +46,7 @@ library(ggplot2)
                shape = 23, fill = "black", color = "black", size = 3, inherit.aes = FALSE) +
     scale_x_continuous(breaks = c(0, 1), labels = c("Vehicle", "DCZ"), limits = c(-0.4, 1.55)) +
     scale_color_manual(values = colors) +
-    labs(title = title, subtitle = subtitle, x = NULL, y = ylabel, color = "Mouse ID") +
+    labs(title = title, subtitle = subtitle, x = NULL, y = ylabel, color = "Mouse ID", caption = window_caption()) +
     theme_minimal() +
     theme(panel.spacing = unit(1, "lines"))
   if (!is.null(facet)) p <- p + facet_wrap(facet)
@@ -57,31 +58,33 @@ library(ggplot2)
          what, "  |  ", .paired_n_label(mouse_means))
 }
 
-plot_dcz_vehicle_paired_one <- function(frames_df, outcome, virus_name, tier, colors) {
+# state = NULL: one figure faceted by state; "Stationary" / "Non-stationary": that state only.
+plot_dcz_vehicle_paired_one <- function(frames_df, outcome, virus_name, tier, colors, state = NULL) {
   df <- dcz_vehicle_subset(frames_df) |>
     filter(virus == virus_name) |>
     filter_nestlet_tier(tier) |>
     filter_for_outcome(outcome) |>
     mutate(state = factor(ifelse(stationary, "Stationary", "Non-stationary"), levels = STATE_LEVELS))
+  if (!is.null(state)) df <- df |> filter(.data$state == .env$state)
   if (nrow(df) == 0) return(NULL)
 
   mouse_means <- df |>
     group_by(state, injection, mouse_id) |>
     summarise(value = mean(.data[[outcome]]), .groups = "drop")
   ylabel <- DCZ_VEHICLE_OUTCOME_LABELS[[outcome]]
-  .draw_spaghetti(mouse_means, colors, title = paste(virus_name, "—", ylabel),
+  .draw_spaghetti(mouse_means, colors, title = paste(virus_name, "—", ylabel, if (!is.null(state)) paste("—", state)),
                   subtitle = .subtitle(virus_name, tier, "per-mouse mean of all samples", mouse_means),
-                  ylabel = ylabel, facet = "state")
+                  ylabel = ylabel, facet = if (is.null(state)) "state")
 }
 
-plot_dorsal_combined_paired <- function(frames_df, bouts_df, virus_name, tier, colors) {
-  mouse_means <- experiment_means_dorsal_combined(frames_df, bouts_df) |>
+plot_all_states_paired <- function(frames_df, bouts_df, outcome, virus_name, tier, colors) {
+  mouse_means <- experiment_means_all_states(frames_df, bouts_df, outcome) |>
     filter(virus == virus_name) |>
     filter_nestlet_tier(tier) |>
     group_by(injection, mouse_id) |>
     summarise(value = mean(value), .groups = "drop")
   if (nrow(mouse_means) == 0) return(NULL)
-  ylabel <- DCZ_VEHICLE_OUTCOME_LABELS[["mouse_surface_temp_mean_c"]]
+  ylabel <- DCZ_VEHICLE_OUTCOME_LABELS[[outcome]]
   .draw_spaghetti(mouse_means, colors, title = paste(virus_name, "—", ylabel, "— all states"),
                   subtitle = .subtitle(virus_name, tier,
                                        "stationary + non-stationary (time-weighted)\nper-mouse mean of session means",
@@ -114,6 +117,22 @@ plot_floor_moving_paired <- function(frames_df, virus_name, tier, colors) {
                   ylabel = "Median floor temp under mouse, moving (°C)")
 }
 
+# Tracking-based activity (distance, all-states velocity; tracking_activity.R): per-mouse mean of
+# session values.
+plot_activity_paired <- function(activity_lanes, col, virus_name, tier, colors) {
+  spec <- ACTIVITY_OUTCOMES[[col]]
+  mouse_means <- dcz_vehicle_subset(activity_lanes) |>
+    filter(virus == virus_name) |>
+    filter_nestlet_tier(tier) |>
+    group_by(injection, mouse_id) |>
+    summarise(value = mean(.data[[col]]), .groups = "drop")
+  if (nrow(mouse_means) == 0) return(NULL)
+  .draw_spaghetti(mouse_means, colors, title = paste(virus_name, "—", spec$title),
+                  subtitle = .subtitle(virus_name, tier, "per-mouse mean of sessions\n(thermal tracking from arena entry)",
+                                       mouse_means),
+                  ylabel = spec$label)
+}
+
 .save_or_skip <- function(p, path, width, height) {
   if (is.null(p)) {
     message(sprintf("skip (no data): %s", path))
@@ -122,23 +141,32 @@ plot_floor_moving_paired <- function(frames_df, virus_name, tier, colors) {
   ggsave(path, p, width = width, height = height, dpi = 150)
 }
 
-build_dcz_vehicle_paired_plots <- function(frames_df, bouts_df, output_dir,
+build_dcz_vehicle_paired_plots <- function(frames_df, bouts_df, output_dir, activity_lanes,
                                             outcomes = names(DCZ_VEHICLE_OUTCOME_LABELS)) {
   colors <- mouse_colors(dcz_vehicle_subset(frames_df))
   for (tier in names(NESTLET_TIERS)) {
     tier_dir <- file.path(output_dir, tier)
     dir.create(tier_dir, recursive = TRUE, showWarnings = FALSE)
     for (virus_name in c("Gi", "Gq")) {
-      for (outcome in outcomes) {
-        .save_or_skip(plot_dcz_vehicle_paired_one(frames_df, outcome, virus_name, tier, colors),
-                      file.path(tier_dir, sprintf("paired_dcz_vehicle_%s_%s.png", virus_name, outcome)), 8, 5)
+      for (outcome in outcomes) for (fig in state_figures(outcome)) {
+        .save_or_skip(plot_dcz_vehicle_paired_one(frames_df, outcome, virus_name, tier, colors, fig$state),
+                      file.path(tier_dir, sprintf("paired_dcz_vehicle_%s_%s%s.png", virus_name, outcome, fig$suffix)),
+                      if (is.null(fig$state)) 8 else 5.5, 5)
       }
-      .save_or_skip(plot_dorsal_combined_paired(frames_df, bouts_df, virus_name, tier, colors),
-                    file.path(tier_dir, sprintf("paired_dcz_vehicle_%s_dorsal_all_states.png", virus_name)), 5.5, 5)
+      for (outcome in names(ALL_STATES_OUTCOMES)) {
+        .save_or_skip(plot_all_states_paired(frames_df, bouts_df, outcome, virus_name, tier, colors),
+                      file.path(tier_dir, sprintf("paired_dcz_vehicle_%s_%s_all_states.png", virus_name,
+                                                  ALL_STATES_OUTCOMES[[outcome]])), 5.5, 5)
+      }
       .save_or_skip(plot_floor_preference_paired(bouts_df, virus_name, tier, colors),
                     file.path(tier_dir, sprintf("paired_dcz_vehicle_%s_floor_preference_stationary.png", virus_name)), 5.5, 5)
       .save_or_skip(plot_floor_moving_paired(frames_df, virus_name, tier, colors),
                     file.path(tier_dir, sprintf("paired_dcz_vehicle_%s_floor_preference_nonstationary.png", virus_name)), 5.5, 5)
+      for (col in names(ACTIVITY_OUTCOMES)) {
+        .save_or_skip(plot_activity_paired(activity_lanes, col, virus_name, tier, colors),
+                      file.path(tier_dir, sprintf("paired_dcz_vehicle_%s_%s.png", virus_name, ACTIVITY_OUTCOMES[[col]]$file)),
+                      5.5, 5)
+      }
     }
   }
 }

@@ -4,5 +4,5 @@ source("R/plot_paired_common.R")
 source("R/plot_bout_organization.R")
 
 bouts <- load_bouts()
-build_bout_organization_plots(bouts, output_dir = "output/bout_organization")
-cat("Done. Figures written to r_analysis_RGB_Thermal/output/bout_organization/\n")
+build_bout_organization_plots(bouts, output_dir = file.path(output_root(), "bout_organization"))
+cat("Done. Figures written to", file.path(output_root(), "bout_organization"), "\n")

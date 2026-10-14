@@ -19,7 +19,7 @@ library(ggplot2)
 # second intervals, take each mouse's per-bin mean first, then average
 # those per-mouse bin means across mice per injection, so a mouse with more
 # samples in a bin doesn't dominate. SEM is 0 when only one mouse
-# contributes.
+# contributes. Velocity and distance come from the tracking instead (plot_activity_timecourse()).
 TIMECOURSE_BIN_WIDTH_SEC <- 30
 
 .sem <- function(x) {
@@ -96,7 +96,8 @@ plot_timecourse_one <- function(frames_df, virus_val, outcome, bin_width = TIMEC
         "Per-mouse traces (thin) + group mean ± SEM (%ds bins); post-craniotomy only\n%s",
         bin_width, n_mice_label
       ),
-      x = "Elapsed time (thermal clock, s)", y = ylabel, color = "Injection", fill = "Injection"
+      x = "Elapsed time (thermal clock, s)", y = ylabel, color = "Injection", fill = "Injection",
+      caption = window_caption()
     ) +
     theme_minimal()
 }
@@ -144,20 +145,63 @@ plot_floor_preference_timecourse <- function(bouts_df, virus_val, bin_width = FL
         bin_width %/% 60, .n_mice_label(df)
       ),
       x = "Bout start (elapsed thermal time, s)", y = "Mean floor temp at bout (°C)",
-      color = "Injection", fill = "Injection"
+      color = "Injection", fill = "Injection", caption = window_caption()
     ) +
     theme_minimal()
 }
 
-# Builds all 4.1 figures: 2 viruses x 3 frame-level outcomes = 6 time-course
-# figures, plus 2 viruses x 1 floor-preference figure = 2 more (8 total).
-build_timecourse_plots <- function(frames_df, bouts_df, output_dir) {
+# Tracking-based activity over time since arena entry (tracking_activity.R, 1-min bins):
+# col = "cumulative_px" (cumulative distance) or "velocity_px_s" (mean velocity in the minute).
+# Per-mouse mean of its sessions at each minute, then group mean +/- SEM across mice. Without a
+# fixed window, sessions end at different times, so the right end of each curve averages fewer
+# sessions; a minute is drawn only while at least 2 mice still contribute.
+.ACTIVITY_TIMECOURSE <- list(
+  cumulative_px = list(title = "Cumulative distance travelled", ylabel = "Cumulative distance (thermal px)",
+                       file = "cumulative_distance"),
+  velocity_px_s = list(title = "Velocity", ylabel = "Velocity (px/s, 1-min mean)", file = "velocity")
+)
+
+plot_activity_timecourse <- function(activity_bins, col, virus_val) {
+  spec <- .ACTIVITY_TIMECOURSE[[col]]
+  df <- activity_bins |>
+    filter(virus == virus_val, craniotomy == "Post", injection %in% c("DCZ", "Vehicle"))
+  if (nrow(df) == 0) return(NULL)
+  mouse_traces <- df |>
+    group_by(mouse_id, injection, minute = bin_end_s / 60) |>
+    summarise(value = mean(.data[[col]], na.rm = TRUE), .groups = "drop")
+  group_trace <- mouse_traces |>
+    group_by(injection, minute) |>
+    summarise(mean_value = mean(value), sem_value = .sem(value), n = n(), .groups = "drop") |>
+    filter(n >= 2)
+  ggplot() +
+    geom_line(data = mouse_traces, aes(x = minute, y = value, color = injection,
+                                       group = interaction(mouse_id, injection)),
+              linewidth = 0.3, alpha = 0.3) +
+    geom_ribbon(data = group_trace, aes(x = minute, ymin = mean_value - sem_value, ymax = mean_value + sem_value,
+                                        fill = injection), alpha = 0.2, color = NA) +
+    geom_line(data = group_trace, aes(x = minute, y = mean_value, color = injection), linewidth = 1.1) +
+    labs(title = sprintf("%s — %s", spec$title, virus_val),
+         subtitle = sprintf("Thermal tracking (every frame)  |  per-mouse means (thin) + group mean ± SEM  |  post-craniotomy\n%s",
+                            .n_mice_label(df)),
+         x = "Time since arena entry (min)", y = spec$ylabel,
+         color = "Injection", fill = "Injection", caption = window_caption()) +
+    theme_minimal()
+}
+
+# Builds all 4.1 figures: per virus, 3 frame-level outcomes, floor preference, and the two
+# tracking-based activity traces (12 total).
+build_timecourse_plots <- function(frames_df, bouts_df, output_dir, activity_bins) {
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
   viruses <- c("Gi", "Gq")
   outcomes <- names(.outcome_labels)
 
   for (virus_val in viruses) {
+    for (col in names(.ACTIVITY_TIMECOURSE)) {
+      p <- plot_activity_timecourse(activity_bins, col, virus_val)
+      if (!is.null(p)) ggsave(file.path(output_dir, sprintf("timecourse_%s_%s.png", .ACTIVITY_TIMECOURSE[[col]]$file, virus_val)),
+                              p, width = 8, height = 5, dpi = 150)
+    }
     for (outcome in outcomes) {
       p <- plot_timecourse_one(frames_df, virus_val, outcome)
       if (is.null(p)) {

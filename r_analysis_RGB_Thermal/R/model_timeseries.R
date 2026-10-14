@@ -22,7 +22,9 @@ library(mgcv)
 # Unit of analysis -- a deliberate departure from fitting raw ~1 Hz frame samples (brief §4.4):
 # frame-level outcomes are first averaged per session x lane x BIN_MIN-minute bin. Consecutive
 # frames are strongly autocorrelated; fitting them directly would make every p-value tiny.
-# Floor preference is bout-level already (one row per bout, time = bout start).
+# Floor preference is bout-level already (one row per bout, time = bout start). Velocity
+# (velocity_px_s) comes from the tracking's own 1-min bins (tracking_activity.R), not Stage 7
+# samples, which miss ~30% of each session; its bins are placed on the same thermal clock.
 
 BIN_MIN <- 1
 TIME_CENTER_MIN <- 15
@@ -43,7 +45,13 @@ TIME_CENTER_MIN <- 15
 }
 
 # Model-ready rows: one per session x lane x time bin (frame outcomes) or per bout (floor).
-model_data <- function(frames_df, bouts_df, virus_val, outcome) {
+model_data <- function(frames_df, bouts_df, virus_val, outcome, activity_bins = NULL) {
+  if (outcome == "velocity_px_s") {
+    return(.post_exp(activity_bins, virus_val) |>
+             filter(!is.na(velocity_px_s)) |>
+             transmute(mouse_id, session_lane, injection, value = velocity_px_s,
+                       time_min = (entry_time_thermal_sec + bin_end_s - 30) / 60))
+  }
   if (outcome == "mean_floor_temp_c") {
     return(.post_exp(bouts_df, virus_val) |>
              filter(!is.na(mean_floor_temp_c)) |>
@@ -89,12 +97,12 @@ model_data <- function(frames_df, bouts_df, virus_val, outcome) {
     error = function(e) NULL)
 }
 
-fit_timeseries_models <- function(frames_df, bouts_df,
-                                   outcomes = c(names(.frame_outcome_labels), "mean_floor_temp_c"),
+fit_timeseries_models <- function(frames_df, bouts_df, activity_bins,
+                                   outcomes = c(names(.frame_outcome_labels), "mean_floor_temp_c", "velocity_px_s"),
                                    viruses = c("Gi", "Gq")) {
   lmm_rows <- list(); gamm_rows <- list(); fits <- list()
   for (outcome in outcomes) for (virus_val in viruses) {
-    d <- model_data(frames_df, bouts_df, virus_val, outcome)
+    d <- model_data(frames_df, bouts_df, virus_val, outcome, activity_bins)
     base <- tibble(outcome = outcome, virus = virus_val, n_rows = nrow(d),
                    n_mice = n_distinct(d$mouse_id), n_sessions = n_distinct(d$session_lane))
     if (nrow(d) < 20 || n_distinct(d$injection) < 2 || n_distinct(d$mouse_id) < 3) {
@@ -159,16 +167,40 @@ plot_timeseries_fit <- function(fits, outcome, ylabel, bin_plot_min = 2) {
     labs(title = paste(ylabel, "— time-series model"),
          subtitle = sprintf("Points: %d-min bin means ± SEM across mice (bins with ≥2 mice)  |  lines: LMM fixed-effect fit",
                             bin_plot_min),
-         x = "Elapsed time (thermal clock, min)", y = ylabel, color = "Injection") +
+         x = "Elapsed time (thermal clock, min)", y = ylabel, color = "Injection", caption = window_caption()) +
     theme_minimal()
 }
 
-build_timeseries_models <- function(frames_df, bouts_df, output_dir) {
+# Whole-session activity (tracking_activity.R): one value per session -- total distance from
+# arena entry, mean velocity -- so no time axis. LMM value ~ injection + (1 | mouse_id) per
+# virus, post-craniotomy DCZ vs Vehicle: the repeated-measures test behind the all_experiments
+# activity figures.
+fit_activity_models <- function(activity_lanes, viruses = c("Gi", "Gq")) {
+  rows <- list()
+  for (col in names(ACTIVITY_OUTCOMES)) for (virus_val in viruses) {
+    d <- .post_exp(activity_lanes, virus_val) |> mutate(value = .data[[col]])
+    base <- tibble(outcome = col, virus = virus_val, n_sessions = nrow(d), n_mice = n_distinct(d$mouse_id),
+                   mean_session_length_s = mean(d$covered_s))
+    fit <- tryCatch(lmerTest::lmer(value ~ injection + (1 | mouse_id), data = d), error = function(e) NULL)
+    if (is.null(fit)) { rows[[length(rows) + 1]] <- mutate(base, term = "fit failed"); next }
+    fe <- broom.mixed::tidy(fit, effects = "fixed", conf.int = TRUE) |>
+      filter(term == "injectionDCZ") |>
+      transmute(term = "DCZ - Vehicle", estimate, std.error, df, p.value, conf.low, conf.high)
+    rows[[length(rows) + 1]] <- bind_cols(base, fe) |>
+      mutate(note = if (isSingular(fit)) "singular fit (mouse variance ~0)" else "")
+  }
+  bind_rows(rows)
+}
+
+build_timeseries_models <- function(frames_df, bouts_df, output_dir, activity) {
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-  res <- fit_timeseries_models(frames_df, bouts_df)
+  res <- fit_timeseries_models(frames_df, bouts_df, activity$bins)
   readr::write_csv(res$lmm, file.path(output_dir, "timeseries_lmm.csv"))
   readr::write_csv(res$gamm, file.path(output_dir, "timeseries_gamm.csv"))
-  labels <- c(.frame_outcome_labels, mean_floor_temp_c = "Floor temp at bout (°C)")
+  res$activity <- fit_activity_models(activity$lanes)
+  readr::write_csv(res$activity, file.path(output_dir, "activity_lmm.csv"))
+  labels <- c(.frame_outcome_labels, mean_floor_temp_c = "Floor temp at bout (°C)",
+              velocity_px_s = "Velocity (px/s, tracking)")
   for (outcome in names(labels)) {
     p <- plot_timeseries_fit(res$fits, outcome, labels[[outcome]])
     if (!is.null(p)) ggsave(file.path(output_dir, sprintf("timeseries_%s.png", outcome)), p,

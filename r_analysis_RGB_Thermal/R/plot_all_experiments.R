@@ -35,7 +35,7 @@ library(ggplot2)
     scale_x_continuous(breaks = c(0, 1), labels = .X_LEVELS, limits = c(-0.35, 1.5)) +
     scale_y_continuous(expand = expansion(mult = c(0.12, 0.05))) +
     scale_color_manual(values = colors) +
-    labs(title = title, subtitle = subtitle, x = NULL, y = ylabel, color = "Mouse ID") +
+    labs(title = title, subtitle = subtitle, x = NULL, y = ylabel, color = "Mouse ID", caption = window_caption()) +
     theme_minimal() +
     theme(panel.spacing = unit(1, "lines"))
   if (!is.null(facet)) p <- p + facet_wrap(facet)
@@ -49,20 +49,25 @@ library(ggplot2)
 
 .tiered <- function(df, virus_name, tier) df |> filter(virus == virus_name) |> filter_nestlet_tier(tier)
 
-plot_all_experiments_one <- function(frames_df, outcome, virus_name, tier, colors) {
+# state = NULL: one figure faceted by state; "Stationary" / "Non-stationary": that state only.
+plot_all_experiments_one <- function(frames_df, outcome, virus_name, tier, colors, state = NULL) {
   em <- .tiered(experiment_means_frame(frames_df, outcome), virus_name, tier)
+  if (!is.null(state)) em <- em |> filter(.data$state == .env$state)
   if (nrow(em) == 0) return(NULL)
   ylabel <- DCZ_VEHICLE_OUTCOME_LABELS[[outcome]]
-  .draw_all_experiments(em, colors, title = paste(virus_name, "—", ylabel, "— each experiment"),
+  .draw_all_experiments(em, colors, title = paste(virus_name, "—", ylabel, if (!is.null(state)) paste("—", state),
+                                                  "— each experiment"),
                         subtitle = .exp_subtitle(virus_name, tier, "one dot = session mean", em),
-                        ylabel = ylabel, facet = "state")
+                        ylabel = ylabel, facet = if (is.null(state)) "state")
 }
 
-plot_all_experiments_dorsal_combined <- function(frames_df, bouts_df, virus_name, tier, colors) {
-  em <- .tiered(experiment_means_dorsal_combined(frames_df, bouts_df), virus_name, tier)
+plot_all_experiments_all_states <- function(frames_df, bouts_df, outcome, virus_name, tier, colors) {
+  em <- .tiered(experiment_means_all_states(frames_df, bouts_df, outcome), virus_name, tier)
   if (nrow(em) == 0) return(NULL)
-  ylabel <- DCZ_VEHICLE_OUTCOME_LABELS[["mouse_surface_temp_mean_c"]]
-  .draw_all_experiments(em, colors, title = paste(virus_name, "— Dorsal, all states — each experiment"),
+  ylabel <- DCZ_VEHICLE_OUTCOME_LABELS[[outcome]]
+  short <- ALL_STATES_OUTCOMES[[outcome]]
+  .draw_all_experiments(em, colors, title = paste0(virus_name, " — ", toupper(substr(short, 1, 1)), substring(short, 2),
+                                                   ", all states — each experiment"),
                         subtitle = .exp_subtitle(virus_name, tier,
                                                  "one dot = session mean,\nstationary + non-stationary (time-weighted)", em),
                         ylabel = ylabel)
@@ -84,7 +89,16 @@ plot_all_experiments_floor_moving <- function(frames_df, virus_name, tier, color
                         ylabel = "Median floor temp under mouse, moving (°C)")
 }
 
-build_all_experiments_plots <- function(frames_df, bouts_df, output_dir,
+plot_all_experiments_activity <- function(activity_lanes, col, virus_name, tier, colors) {
+  spec <- ACTIVITY_OUTCOMES[[col]]
+  em <- .tiered(dcz_vehicle_subset(activity_lanes) |> mutate(value = .data[[col]]), virus_name, tier)
+  if (nrow(em) == 0) return(NULL)
+  .draw_all_experiments(em, colors, title = paste(virus_name, "—", spec$title, "— each experiment"),
+                        subtitle = .exp_subtitle(virus_name, tier, "one dot = session, tracking from arena entry", em),
+                        ylabel = spec$label)
+}
+
+build_all_experiments_plots <- function(frames_df, bouts_df, output_dir, activity_lanes,
                                         outcomes = names(DCZ_VEHICLE_OUTCOME_LABELS)) {
   colors <- mouse_colors(dcz_vehicle_subset(frames_df))
   save <- function(p, path, width, height) {
@@ -95,16 +109,25 @@ build_all_experiments_plots <- function(frames_df, bouts_df, output_dir,
     tier_dir <- file.path(output_dir, tier)
     dir.create(tier_dir, recursive = TRUE, showWarnings = FALSE)
     for (virus_name in c("Gi", "Gq")) {
-      for (outcome in outcomes) {
-        save(plot_all_experiments_one(frames_df, outcome, virus_name, tier, colors),
-             file.path(tier_dir, sprintf("experiments_dcz_vehicle_%s_%s.png", virus_name, outcome)), 8, 5)
+      for (outcome in outcomes) for (fig in state_figures(outcome)) {
+        save(plot_all_experiments_one(frames_df, outcome, virus_name, tier, colors, fig$state),
+             file.path(tier_dir, sprintf("experiments_dcz_vehicle_%s_%s%s.png", virus_name, outcome, fig$suffix)),
+             if (is.null(fig$state)) 8 else 5.5, 5)
       }
-      save(plot_all_experiments_dorsal_combined(frames_df, bouts_df, virus_name, tier, colors),
-           file.path(tier_dir, sprintf("experiments_dcz_vehicle_%s_dorsal_all_states.png", virus_name)), 5.5, 5)
+      for (outcome in names(ALL_STATES_OUTCOMES)) {
+        save(plot_all_experiments_all_states(frames_df, bouts_df, outcome, virus_name, tier, colors),
+             file.path(tier_dir, sprintf("experiments_dcz_vehicle_%s_%s_all_states.png", virus_name,
+                                         ALL_STATES_OUTCOMES[[outcome]])), 5.5, 5)
+      }
       save(plot_all_experiments_floor(bouts_df, virus_name, tier, colors),
            file.path(tier_dir, sprintf("experiments_dcz_vehicle_%s_floor_preference_stationary.png", virus_name)), 5.5, 5)
       save(plot_all_experiments_floor_moving(frames_df, virus_name, tier, colors),
            file.path(tier_dir, sprintf("experiments_dcz_vehicle_%s_floor_preference_nonstationary.png", virus_name)), 5.5, 5)
+      for (col in names(ACTIVITY_OUTCOMES)) {
+        save(plot_all_experiments_activity(activity_lanes, col, virus_name, tier, colors),
+             file.path(tier_dir, sprintf("experiments_dcz_vehicle_%s_%s.png", virus_name, ACTIVITY_OUTCOMES[[col]]$file)),
+             5.5, 5)
+      }
     }
   }
 }
