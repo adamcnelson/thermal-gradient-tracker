@@ -89,11 +89,15 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
   frame level (Stage 7 already classifies it, see
   `../scripts/stage7_real_run.py`) — so `load_bouts()`/`load_frames()` are
   much thinner than their legacy equivalents.
-- **Corpus (2026-10-13)**: 43 sessions × lanes = 81 Stage 7 lanes, 8 DREADD mice (Gi 4539/4540/
+- **Corpus (2026-10-13)**: 43 sessions × lanes = 85 Stage 7 lanes, 8 DREADD mice (Gi 4539/4540/
   4551/4552, Gq 4541/4547/4548/4550) + 1 no-virus mouse, 3–4 sessions per mouse per condition.
   The 10 lanes added on 2026-10-13 are recovered sessions (thermalFeatures/recover_2026-10/):
   4541's two habituation sessions (07-08, 07-11) and three post-craniotomy rehabituation
   sessions (Post/Saline). The rehab `.seq` names carry wrong mouse IDs (LUT note); the LUT's are used.
+  4 more DCZ/Vehicle test lanes were added the same day (thermalFeatures/recover_lanes_2026-10/):
+  lanes never cropped in June whose sibling lane was already in the corpus (4548 DCZ, 4547 Vehicle,
+  4551 Vehicle + DCZ). Per-mouse counts: ../../metadata/experiment_overview_by_mouse.csv
+  (scripts/build_experiment_overview.py).
   (Built originally on a 6-lane, 2-mouse corpus; sample-size labels are now computed from the
   data, never hard-coded.)
 - **Craniotomy is confounded with phase**: every Pre-craniotomy session is habituation (Saline),
@@ -129,4 +133,6 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
 - [x] 4.3 Distribution plots (dorsal/warm-spot/tail-ΔT)
 - [x] 4.3 velocity distributions (velocity joined via `join_landmark_metadata.py --velocity-from`)
 - [x] 4.4 Time-series models (LMM + GAMM check)
-- All of the above re-run on the full 81-lane corpus, 2026-10-13 (only 4.2.2 changed: n 7 → 8).
+- All of the above re-run on the full 85-lane corpus, 2026-10-13. With the 4 recovered test
+  lanes, 4.4's Gi floor slope difference is gone (p 0.007 → 0.25); Gq DCZ floor offset +1.9 °C
+  (p 0.09), dorsal +0.6 °C (p 0.06); all 4 Gq mice now prefer a warmer floor under DCZ (4.2.1).
