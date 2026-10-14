@@ -61,18 +61,19 @@ From `r_analysis_RGB_Thermal/` (this directory):
 renv::restore()   # first time only — installs the locked package versions
 ```
 
-Then run scripts under `scripts/` in order; each is self-contained and
-sources `R/data.R` / `R/*.R` helpers as needed.
+Then `scripts/run_all.sh` (whole sessions → `output/`, entry + 1750 s → `output/1750s_post_entry/`),
+or run scripts under `scripts/` individually; each is self-contained and sources `R/data.R` /
+`R/*.R` helpers as needed (set `ANALYSIS_WINDOW_SEC` for the windowed version).
 
 | Script | Brief section | Produces |
 |---|---|---|
 | `scripts/00_sanity_check.R` | — | Verifies schema, Craniotomy join coverage, and outcome-applicability counts; no figures. |
-| `scripts/01_timecourse_plots.R` | 4.1 | Per virus, per outcome, DCZ vs Vehicle mean±SEM trace over `elapsed_time_thermal_sec` (8 figures: 2 viruses × 3 frame-level outcomes + 2 viruses × floor-preference). Pre/post-craniotomy split omitted — see status note below. |
-| `scripts/02_spaghetti_paired_reproduce.R` | 4.2.1 | Per-mouse DCZ-vs-Vehicle paired points + group mean±SE, one figure per virus × outcome, faceted by stationary state; plus dorsal with both states combined (time-weighted), floor pref while stationary (`floor_preference_stationary`, mean over bouts) and while moving (`floor_preference_nonstationary`, session medians). Written to `output/spaghetti/{full_dataset,with_nestlet,no_nestlet}/` (12 figures per tier). |
-| `scripts/03_craniotomy_plots.R` | 4.2.2 | Per-mouse Pre- vs Post-craniotomy, Gi+Gq combined, stationary/non-stationary split, 3 outcomes + floor pref, two contrasts (8 figures): `craniotomy_*` Pre = habituation/Saline vs Post = experimental/Vehicle (n=8); `craniotomy_saline_*` vs Post = rehabituation/Saline (n=6). Both **confounded with time/experience**, see design notes. |
-| `scripts/04_distribution_plots.R` | 4.3 | Distributions per virus, DCZ vs Vehicle, split stationary/non-stationary, per outcome (12 figures: 3 outcomes × 2 viruses × 2 states). Plus velocity per virus (2 figures). |
+| `scripts/01_timecourse_plots.R` | 4.1 | Per virus, per outcome, DCZ vs Vehicle mean±SEM trace over `elapsed_time_thermal_sec` (12 figures: per virus, 3 frame-level outcomes + floor pref + velocity and cumulative distance from the tracking, the last two over time since arena entry). Pre/post-craniotomy split omitted — see status note below. |
+| `scripts/02_spaghetti_paired_reproduce.R` | 4.2.1 | Per-mouse DCZ-vs-Vehicle paired points + group mean±SE, one figure per virus × outcome, faceted by stationary state; plus dorsal with both states combined (`dorsal_all_states`, time-weighted), whole-session velocity (`velocity_all_states`) and `distance_travelled` from the tracking, floor pref while stationary (`floor_preference_stationary`, mean over bouts) and while moving (`floor_preference_nonstationary`, session medians). Written to `output/spaghetti/{full_dataset,with_nestlet,no_nestlet}/` (18 figures per tier). |
+| `scripts/03_craniotomy_plots.R` | 4.2.2 | Per-mouse Pre- vs Post-craniotomy, Gi+Gq combined, stationary/non-stationary split, 4 outcomes (incl. velocity) + dorsal all-states + tracking velocity/distance + floor pref, two contrasts (16 figures): `craniotomy_*` Pre = habituation/Saline vs Post = experimental/Vehicle (n=8); `craniotomy_saline_*` vs Post = rehabituation/Saline (n=6). Both **confounded with time/experience**, see design notes. |
+| `scripts/04_distribution_plots.R` | 4.3 | Distributions per virus, DCZ vs Vehicle, split stationary/non-stationary, per outcome (16 figures: 4 outcomes incl. velocity × 2 viruses × 2 states). Plus velocity per virus, all states, from every tracking frame (2 figures). |
 | `scripts/05_bout_organization_plots.R` | 4.2.3 | Bouts per session and mean bout duration, DCZ vs Vehicle, per virus (2 figures). |
-| `scripts/06_timeseries_models.R` | 4.4 | LMM per outcome × virus (time × injection on per-session 1-min bin means; floor pref per bout) + GAMM difference-smooth check → `output/models/timeseries_{lmm,gamm}.csv` + 4 figures. |
+| `scripts/06_timeseries_models.R` | 4.4 | LMM per outcome × virus (time × injection on per-session 1-min bin means; floor pref per bout) + GAMM difference-smooth check, incl. velocity (tracking 1-min bins) → `output/models/timeseries_{lmm,gamm}.csv` + 5 figures; per-session distance/velocity LMM → `activity_lmm.csv`. |
 | `scripts/07_all_experiments_plots.R` | — | Same figure set as 02, but one jittered dot per experiment (session × lane), colored by mouse, no connecting lines, DCZ left / Vehicle right, mean±SEM across experiments beside each cloud. `output/all_experiments/{full_dataset,with_nestlet,no_nestlet}/`. |
 
 All paired panels (4.2.2, 4.2.3) carry a paired t-test on per-mouse means (mice with both
@@ -108,8 +109,7 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
   4.2.2 has n=8 (4541's habituation sessions were recovered 2026-10-13). A second 4.2.2 set,
   `craniotomy_saline_*`, uses the recovered rehabituation sessions as Post (Post/Saline, n=6
   mice; 4551/4552's rehab session is unrecoverable): the same injection on both sides, so only
-  craniotomy + time/experience differ. First result (2026-10-13): nothing significant in either
-  contrast; 4540/4541 swing far more than the other mice. No other figure uses Saline rows.
+  craniotomy + time/experience differ. No other figure uses Saline rows.
 - **Velocity** (`velocity_smooth_px_s`) isn't a native Stage 7 column. `../scripts/join_landmark_metadata.py
   --velocity-from <master_tracking_with_metadata.csv>` attaches it to the frame table from the re-track
   run (compute_velocity() output), nearest same-lane timestamp within 0.5 s: 98.2% of rows; the rest
@@ -120,9 +120,6 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
   when the slope model is singular (recorded per row). Fitted on per-session 1-min bin means,
   not raw ~1 Hz frames — consecutive frames are autocorrelated and would make every p tiny.
   GAMM (`mgcv`, ordered-factor difference smooth) as a non-linearity check on every outcome.
-  First results: no robust trajectory divergence. Gi floor pref's slope difference (p=0.007)
-  is driven by the first 5 min of exploration (p=0.14 dropping bouts <5 min, 0.81 dropping
-  <10 min); what holds is Gq DCZ's offset (warmer floor, warmer dorsal), not a shape change.
 
 - **Nestlet tiers** (2026-10-14): `Nestlet` (Y/N) is a per-(mouse, date) LUT column, joined like
   Craniotomy (`R/data.R::join_nestlet()`). The DCZ/Vehicle figure sets (02, 07) are drawn three
@@ -141,6 +138,37 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
   alongside velocity, and is distinct from Stage 7's `floor_temp_mean_c` (local annulus at the tail).
   The non-stationary floor figures use each session's **median** over its 1 Hz moving samples, since
   a moving mouse sweeps the gradient and the distribution is wide and skewed.
+- **Velocity everywhere** (2026-10-14): `velocity_smooth_px_s` is a fifth frame-level outcome
+  (`OUTCOME_COLS`, non-NA rule) for the per-state views — Stationary / Non-stationary panels and
+  rest / non-rest distributions, from Stage 7 samples. Stationary velocity is near zero by
+  construction (~1 px/s vs ~14 moving), so in spaghetti, all_experiments and craniotomy velocity is
+  drawn as separate `*_velocity_smooth_px_s_{stationary,nonstationary}.png` files rather than one
+  figure faceted by state (`SPLIT_STATE_OUTCOMES`); the temperature outcomes stay faceted. Units are thermal px/s, not cm/s; the Test_3/4/7 thermal crops (one per camera
+  regime) are all 412–416 px long, so the scale looks comparable across sessions, but it hasn't
+  been checked for every session.
+- **Activity from the tracking, not Stage 7** (2026-10-14, `R/tracking_activity.R`): Stage 7
+  samples cover only ~70% of a session — QC-invalid frames (~10%) and stationary stretches too
+  short to be bouts (~13–16%) are in neither its bout samples nor its non-stationary pass — and the
+  split differs between habituation and experimental sessions (45% vs 35% of time in bouts). A
+  first attempt at whole-session velocity from time-weighted Stage 7 samples was biased by this
+  (it gave a spurious craniotomy speed-up) and was replaced: **whole-session velocity**
+  (`velocity_all_states`, velocity time course, velocity model, all-states velocity histogram) and
+  **distance travelled** now come straight from every valid thermal-tracking frame (~1 Hz), from
+  arena entry. Distance = sum of centroid steps between consecutive valid frames; steps < 3 px are
+  rest jitter and dropped (rest steps: median 1.0 px; moving: 10.6 px; 3 → 8 px changes totals only
+  8%); steps across QC dropouts ≤ 5 s are bridged, longer gaps (~5% of time) skipped. Velocity is
+  `compute_velocity()`'s smoothed speed, ~25% below raw step speed, so distance ÷ time and velocity
+  differ in absolute terms. Per-session totals get an LMM (`value ~ injection + (1 | mouse_id)`,
+  `output/models/activity_lmm.csv`) — the repeated-measures test behind the all_experiments dots.
+- **Equal-length window** (2026-10-14): sessions run 593–2398 s after arena entry, which biases
+  totals like distance. `scripts/run_all.sh [WINDOW]` runs everything twice: whole sessions →
+  `output/`, and every lane cut to [entry, entry + 1750 s] → `output/1750s_post_entry/`
+  (`ANALYSIS_WINDOW_SEC`, `data.R::apply_window()`). 1750 s is the longest window nearly every lane
+  fills: 54 of 62 DCZ/Vehicle lanes (8 lanes from 4 sessions with short RGB video, 593–1437 s, are
+  dropped; 2000 s would have kept only 8 lanes). Entry times are the human-verified ones Stage 7
+  used (`STAGE7_CONFIGS`, read with `jsonlite` — added to renv). Bouts straddling the cut keep their
+  bout-level averages but have their end clipped (≤1 per lane). Windowed figures carry a caption
+  saying so.
 - **all_experiments SEM** is across experiments treated as independent (3–4 per mouse), so it
   describes the dots' spread, not an inferential error bar.
 - **Mouse colors** are fixed per mouse ID (`mouse_colors()`), so a mouse keeps its color across
@@ -157,6 +185,6 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
 - [x] 4.3 velocity distributions (velocity joined via `join_landmark_metadata.py --velocity-from`)
 - [x] 4.4 Time-series models (LMM + GAMM check)
 - [x] Spaghetti split per virus, dorsal all-states figure, nestlet tiers, all_experiments figures (2026-10-14)
-- All of the above re-run on the full 85-lane corpus, 2026-10-13. With the 4 recovered test
-  lanes, 4.4's Gi floor slope difference is gone (p 0.007 → 0.25); Gq DCZ floor offset +1.9 °C
-  (p 0.09), dorsal +0.6 °C (p 0.06); all 4 Gq mice now prefer a warmer floor under DCZ (4.2.1).
+- [x] Velocity added to every output folder; distance travelled; whole-session activity from tracking; equal-length 1750 s window (2026-10-14)
+- All of the above re-run on the full 85-lane corpus, 2026-10-13. Result statistics are kept
+  out of this public repo, in the git-ignored `RESULTS_NOTES.md` next to this file.
