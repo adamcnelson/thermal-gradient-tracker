@@ -110,10 +110,19 @@ def load_inputs(results_dir, video_file, bout_index, pad_sec):
 
 
 def roi_at(trk, prefix, t_now):
-    """ROI center/radius at the nearest 1 Hz sample, or None if invalid there."""
-    row = trk.iloc[(trk.elapsed_time_sec - t_now).abs().argmin()]
+    """(x, y, radius, age_sec) of the latest 1 Hz sample at or before t_now, or None.
+
+    Never uses a future sample: between samples the tracker measured nothing, so the
+    circle shows where the last measurement was taken, not where the mouse is now.
+    """
+    past = trk[trk.elapsed_time_sec <= t_now + 1e-6]
+    if past.empty:
+        return None
+    row = past.iloc[-1]
     x, y, r = row[f"{prefix}_center_x"], row[f"{prefix}_center_y"], row[f"{prefix}_radius_px"]
-    return None if np.isnan(x) or np.isnan(y) else (x, y, r)
+    if np.isnan(x) or np.isnan(y):
+        return None
+    return x, y, r, t_now - row.elapsed_time_sec
 
 
 def build_figure(frame_c, trk, bout, window, title, cmap, vlim):
@@ -128,6 +137,8 @@ def build_figure(frame_c, trk, bout, window, title, cmap, vlim):
     cbar.set_label("°C")
     roi_circle = Circle((0, 0), 1, fill=False, ec="cyan", lw=1.5)
     ax_img.add_patch(roi_circle)
+    ax_img.set_title("circle = mouse ROI of the latest 1 Hz tracking sample (solid when sampled, fades until the next)",
+                     fontsize=10, loc="left")
     fig.suptitle(title, fontsize=16)
     clock = fig.text(0.97, 0.955, "", ha="right", fontsize=14, family="monospace")
 
@@ -185,6 +196,7 @@ def render(args):
     out_fps = THERMAL_FPS * args.speed
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
+    out.unlink(missing_ok=True)  # macOS AVFoundation (avc1) refuses to overwrite: "Cannot Save"
     w, h = fig.canvas.get_width_height()
     writer = None
     for fourcc in ("avc1", "mp4v"):
@@ -203,6 +215,7 @@ def render(args):
         roi_circle.set_visible(roi is not None)
         if roi is not None:
             roi_circle.center, roi_circle.radius = roi[:2], roi[2]
+            roi_circle.set_alpha(max(0.2, 1.0 - 0.8 * roi[3]))
         for (line, y), cursor in zip(lines, cursors):
             line.set_data(*trace_up_to(t_trk, y, t_now))
             cursor.set_xdata([t_now, t_now])
