@@ -3,7 +3,7 @@
 #   craniotomy_*.png         Pre (habituation, Saline) vs Post (experimental, Vehicle)
 #   craniotomy_saline_*.png  Pre (habituation, Saline) vs Post (rehabituation, Saline)
 source("R/data.R")
-source("R/plot_spaghetti.R")      # outcome labels
+source("R/dcz_vehicle_units.R")   # outcome labels
 source("R/plot_paired_common.R")
 source("R/plot_craniotomy.R")
 

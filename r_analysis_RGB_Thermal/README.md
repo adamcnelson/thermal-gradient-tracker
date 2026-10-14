@@ -68,11 +68,12 @@ sources `R/data.R` / `R/*.R` helpers as needed.
 |---|---|---|
 | `scripts/00_sanity_check.R` | — | Verifies schema, Craniotomy join coverage, and outcome-applicability counts; no figures. |
 | `scripts/01_timecourse_plots.R` | 4.1 | Per virus, per outcome, DCZ vs Vehicle mean±SEM trace over `elapsed_time_thermal_sec` (8 figures: 2 viruses × 3 frame-level outcomes + 2 viruses × floor-preference). Pre/post-craniotomy split omitted — see status note below. |
-| `scripts/02_spaghetti_paired_reproduce.R` | 4.2.1 | Per-mouse DCZ-vs-Vehicle paired points + group mean±SE, faceted virus × stationary state, per outcome (4 figures: 3 frame-level outcomes + floor pref, the last faceted virus-only). |
+| `scripts/02_spaghetti_paired_reproduce.R` | 4.2.1 | Per-mouse DCZ-vs-Vehicle paired points + group mean±SE, one figure per virus × outcome, faceted by stationary state; plus dorsal with both states combined (time-weighted) and floor pref. Written to `output/spaghetti/{full_dataset,with_nestlet,no_nestlet}/` (10 figures per tier). |
 | `scripts/03_craniotomy_plots.R` | 4.2.2 | Per-mouse Pre- vs Post-craniotomy, Gi+Gq combined, stationary/non-stationary split, 3 outcomes + floor pref, two contrasts (8 figures): `craniotomy_*` Pre = habituation/Saline vs Post = experimental/Vehicle (n=8); `craniotomy_saline_*` vs Post = rehabituation/Saline (n=6). Both **confounded with time/experience**, see design notes. |
 | `scripts/04_distribution_plots.R` | 4.3 | Distributions per virus, DCZ vs Vehicle, split stationary/non-stationary, per outcome (12 figures: 3 outcomes × 2 viruses × 2 states). Plus velocity per virus (2 figures). |
 | `scripts/05_bout_organization_plots.R` | 4.2.3 | Bouts per session and mean bout duration, DCZ vs Vehicle, per virus (2 figures). |
 | `scripts/06_timeseries_models.R` | 4.4 | LMM per outcome × virus (time × injection on per-session 1-min bin means; floor pref per bout) + GAMM difference-smooth check → `output/models/timeseries_{lmm,gamm}.csv` + 4 figures. |
+| `scripts/07_all_experiments_plots.R` | — | Same figure set as 02, but one jittered dot per experiment (session × lane), colored by mouse, no connecting lines, DCZ left / Vehicle right, mean±SEM across experiments beside each cloud. `output/all_experiments/{full_dataset,with_nestlet,no_nestlet}/`. |
 
 All paired panels (4.2.2, 4.2.3) carry a paired t-test on per-mouse means (mice with both
 conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.csv`.
@@ -123,6 +124,21 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
   is driven by the first 5 min of exploration (p=0.14 dropping bouts <5 min, 0.81 dropping
   <10 min); what holds is Gq DCZ's offset (warmer floor, warmer dorsal), not a shape change.
 
+- **Nestlet tiers** (2026-10-14): `Nestlet` (Y/N) is a per-(mouse, date) LUT column, joined like
+  Craniotomy (`R/data.R::join_nestlet()`). The DCZ/Vehicle figure sets (02, 07) are drawn three
+  times: full dataset, with nestlet, no nestlet. Post-craniotomy DCZ/Vehicle sessions per virus:
+  no nestlet 11–12 per condition, with nestlet 4 per condition (one per mouse). Every
+  Pre-craniotomy session had a nestlet, so the craniotomy contrasts (03) can't be split this way.
+  Nest quality/location (EthoVision) is a separate analysis, to be integrated later.
+- **Dorsal, all states**: stationary samples are ~13 s apart, non-stationary 1 s apart (93% of
+  samples), so a pooled sample mean would just be the non-stationary mean. Each session's two state
+  means are instead weighted by time in that state (stationary = sum of bout durations,
+  non-stationary = number of 1 Hz samples) — `R/dcz_vehicle_units.R::experiment_means_dorsal_combined()`.
+- **all_experiments SEM** is across experiments treated as independent (3–4 per mouse), so it
+  describes the dots' spread, not an inferential error bar.
+- **Mouse colors** are fixed per mouse ID (`mouse_colors()`), so a mouse keeps its color across
+  tiers and figure families.
+
 ## Status
 
 - [x] Project scaffold (renv, directory layout, `R/data.R`, sanity check)
@@ -133,6 +149,7 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
 - [x] 4.3 Distribution plots (dorsal/warm-spot/tail-ΔT)
 - [x] 4.3 velocity distributions (velocity joined via `join_landmark_metadata.py --velocity-from`)
 - [x] 4.4 Time-series models (LMM + GAMM check)
+- [x] Spaghetti split per virus, dorsal all-states figure, nestlet tiers, all_experiments figures (2026-10-14)
 - All of the above re-run on the full 85-lane corpus, 2026-10-13. With the 4 recovered test
   lanes, 4.4's Gi floor slope difference is gone (p 0.007 → 0.25); Gq DCZ floor offset +1.9 °C
   (p 0.09), dorsal +0.6 °C (p 0.06); all 4 Gq mice now prefer a warmer floor under DCZ (4.2.1).

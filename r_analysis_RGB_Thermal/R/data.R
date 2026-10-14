@@ -76,6 +76,35 @@ join_craniotomy <- function(df, lut_csv = LUT_CSV, allow_unmatched = FALSE) {
   df
 }
 
+# ── Nestlet lookup ───────────────────────────────────────────────────────────
+#
+# Nestlet (Y/N) is a per-(Mouse_ID, Date) LUT property, like Craniotomy -- same join. Every
+# Pre-craniotomy session had a nestlet; Post sessions are a mix, so the DCZ/Vehicle plots are
+# also drawn per nestlet tier (NESTLET_TIERS / filter_nestlet_tier()).
+join_nestlet <- function(df, lut_csv = LUT_CSV) {
+  lookup <- read_csv(lut_csv, show_col_types = FALSE, col_types = cols(.default = "c")) |>
+    transmute(mouse_id = str_trim(Mouse_ID), date = mdy(Date), nestlet = str_trim(Nestlet)) |>
+    filter(!is.na(mouse_id), !is.na(date)) |>
+    distinct()
+  df <- df |>
+    mutate(.session_date = extract_session_date(session), mouse_id = str_trim(as.character(mouse_id))) |>
+    left_join(lookup, by = c("mouse_id" = "mouse_id", ".session_date" = "date")) |>
+    select(-.session_date)
+  n_unmatched <- sum(is.na(df$nestlet))
+  if (n_unmatched > 0) stop(sprintf("join_nestlet: %d / %d rows have no Nestlet value", n_unmatched, nrow(df)))
+  df
+}
+
+NESTLET_TIERS <- c(full_dataset = "Full dataset", with_nestlet = "With nestlet", no_nestlet = "No nestlet")
+
+filter_nestlet_tier <- function(df, tier) {
+  stopifnot(tier %in% names(NESTLET_TIERS))
+  switch(tier,
+         full_dataset = df,
+         with_nestlet = df |> filter(nestlet == "Y"),
+         no_nestlet = df |> filter(nestlet == "N"))
+}
+
 # ── Frame-level data ─────────────────────────────────────────────────────────
 #
 # One row per Stage 7 sample (stationary bouts + project_brief_v8.md §3.1's
@@ -91,7 +120,7 @@ load_frames <- function(with_craniotomy = TRUE) {
   # turns the LUT note into NA -- read it as text.
   df <- read_csv(FRAME_CSV, show_col_types = FALSE, col_types = cols(seq_name_warning = col_character()))
   if (with_craniotomy) df <- join_craniotomy(df)
-  df
+  join_nestlet(df)
 }
 
 # ── Bout-level data ──────────────────────────────────────────────────────────
@@ -106,7 +135,7 @@ load_bouts <- function(with_craniotomy = TRUE) {
   # turns the LUT note into NA -- read it as text.
   df <- read_csv(BOUT_CSV, show_col_types = FALSE, col_types = cols(seq_name_warning = col_character()))
   if (with_craniotomy) df <- join_craniotomy(df)
-  df
+  join_nestlet(df)
 }
 
 # ── Outcome applicability (project_brief_v8.md §1 / §4's filtering-

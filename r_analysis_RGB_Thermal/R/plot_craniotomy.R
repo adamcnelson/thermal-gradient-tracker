@@ -41,7 +41,7 @@ plot_craniotomy_one <- function(frames_df, outcome, post_injection = "Vehicle") 
     group_by(stat_label, cond, mouse_id) |>
     summarise(value = mean(.data[[outcome]], na.rm = TRUE), .groups = "drop")
   if (nrow(mm) == 0) return(NULL)
-  ylabel <- .spaghetti_outcome_labels[[outcome]]
+  ylabel <- DCZ_VEHICLE_OUTCOME_LABELS[[outcome]]
   plot_paired_generic(mm, facet_vars = "stat_label", facet_formula = . ~ stat_label,
                       title = paste(ylabel, "— craniotomy effect"), ylabel = ylabel,
                       subtitle = paste0("Gi+Gq combined  |  per-mouse mean  |  ", CRANIOTOMY_POST[[post_injection]]$confound))
@@ -61,7 +61,7 @@ plot_craniotomy_floor <- function(bouts_df, post_injection = "Vehicle") {
 }
 
 build_craniotomy_plots <- function(frames_df, bouts_df, output_dir,
-                                   outcomes = names(.spaghetti_outcome_labels), post_injection = "Vehicle") {
+                                   outcomes = names(DCZ_VEHICLE_OUTCOME_LABELS), post_injection = "Vehicle") {
   dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   prefix <- CRANIOTOMY_POST[[post_injection]]$file_prefix
   for (outcome in outcomes) {
