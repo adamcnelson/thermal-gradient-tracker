@@ -68,7 +68,7 @@ sources `R/data.R` / `R/*.R` helpers as needed.
 |---|---|---|
 | `scripts/00_sanity_check.R` | — | Verifies schema, Craniotomy join coverage, and outcome-applicability counts; no figures. |
 | `scripts/01_timecourse_plots.R` | 4.1 | Per virus, per outcome, DCZ vs Vehicle mean±SEM trace over `elapsed_time_thermal_sec` (8 figures: 2 viruses × 3 frame-level outcomes + 2 viruses × floor-preference). Pre/post-craniotomy split omitted — see status note below. |
-| `scripts/02_spaghetti_paired_reproduce.R` | 4.2.1 | Per-mouse DCZ-vs-Vehicle paired points + group mean±SE, one figure per virus × outcome, faceted by stationary state; plus dorsal with both states combined (time-weighted) and floor pref. Written to `output/spaghetti/{full_dataset,with_nestlet,no_nestlet}/` (10 figures per tier). |
+| `scripts/02_spaghetti_paired_reproduce.R` | 4.2.1 | Per-mouse DCZ-vs-Vehicle paired points + group mean±SE, one figure per virus × outcome, faceted by stationary state; plus dorsal with both states combined (time-weighted), floor pref while stationary (`floor_preference_stationary`, mean over bouts) and while moving (`floor_preference_nonstationary`, session medians). Written to `output/spaghetti/{full_dataset,with_nestlet,no_nestlet}/` (12 figures per tier). |
 | `scripts/03_craniotomy_plots.R` | 4.2.2 | Per-mouse Pre- vs Post-craniotomy, Gi+Gq combined, stationary/non-stationary split, 3 outcomes + floor pref, two contrasts (8 figures): `craniotomy_*` Pre = habituation/Saline vs Post = experimental/Vehicle (n=8); `craniotomy_saline_*` vs Post = rehabituation/Saline (n=6). Both **confounded with time/experience**, see design notes. |
 | `scripts/04_distribution_plots.R` | 4.3 | Distributions per virus, DCZ vs Vehicle, split stationary/non-stationary, per outcome (12 figures: 3 outcomes × 2 viruses × 2 states). Plus velocity per virus (2 figures). |
 | `scripts/05_bout_organization_plots.R` | 4.2.3 | Bouts per session and mean bout duration, DCZ vs Vehicle, per virus (2 figures). |
@@ -134,6 +134,13 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
   samples), so a pooled sample mean would just be the non-stationary mean. Each session's two state
   means are instead weighted by time in that state (stationary = sum of bout durations,
   non-stationary = number of 1 Hz samples) — `R/dcz_vehicle_units.R::experiment_means_dorsal_combined()`.
+- **Floor temp while moving** (2026-10-14): bout-level `mean_floor_temp_c` only covers stationary
+  time. The frame table now also carries `tracking_floor_temp_c`: the tracker's per-frame floor
+  ROI next to the mouse, the same signal `mean_floor_temp_c` averages over a bout (r=0.995 against
+  it on stationary samples). It's attached by `../scripts/join_landmark_metadata.py --velocity-from`
+  alongside velocity, and is distinct from Stage 7's `floor_temp_mean_c` (local annulus at the tail).
+  The non-stationary floor figures use each session's **median** over its 1 Hz moving samples, since
+  a moving mouse sweeps the gradient and the distribution is wide and skewed.
 - **all_experiments SEM** is across experiments treated as independent (3–4 per mouse), so it
   describes the dots' spread, not an inferential error bar.
 - **Mouse colors** are fixed per mouse ID (`mouse_colors()`), so a mouse keeps its color across

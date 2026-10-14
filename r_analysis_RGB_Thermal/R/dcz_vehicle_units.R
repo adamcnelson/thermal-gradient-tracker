@@ -82,6 +82,18 @@ experiment_means_floor <- function(bouts_df) {
     summarise(value = mean(mean_floor_temp_c), n_bouts = n(), .groups = "drop")
 }
 
+# Floor temperature where the mouse was while moving: median, per experiment, of
+# tracking_floor_temp_c over the 1 Hz non-stationary samples. tracking_floor_temp_c is the
+# tracker's per-frame floor ROI next to the mouse -- the same signal mean_floor_temp_c averages
+# over a stationary bout (attached by join_landmark_metadata.py --velocity-from). Median, not
+# mean: a moving mouse sweeps the gradient, so the distribution is wide and often skewed.
+experiment_medians_floor_moving <- function(frames_df) {
+  dcz_vehicle_subset(frames_df) |>
+    filter(!stationary, !is.na(tracking_floor_temp_c)) |>
+    group_by(virus, mouse_id, injection, nestlet, session, track) |>
+    summarise(value = median(tracking_floor_temp_c), n_samples = n(), .groups = "drop")
+}
+
 sem <- function(x) {
   x <- x[!is.na(x)]
   if (length(x) <= 1) return(0)

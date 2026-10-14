@@ -64,7 +64,10 @@ def _join_one_kind(kind, pattern, in_dirs, lut_kept, out, overwrite, log, veloci
     if velocity_from and kind == "frame" and not master_df.empty:
         import pandas as pd
         from src.velocity import attach_tracking_velocity
-        cols = ["video_file", "elapsed_time_sec", "velocity_smooth_px_s"]
+        # floor_temp_mean is the tracker's floor ROI next to the mouse -- the per-frame signal the
+        # bout-level mean_floor_temp_c averages -- renamed so it can't be confused with Stage 7's own
+        # floor_temp_mean_c (the local annulus at the tail sample point, an input to tail-dT).
+        cols = ["video_file", "elapsed_time_sec", "velocity_smooth_px_s", "floor_temp_mean"]
         parts = [pd.read_csv(f, usecols=cols) for f in velocity_from]
         for i in range(len(parts) - 1):  # a lane in several files is taken from the last one
             later = set().union(*(p.video_file for p in parts[i + 1:]))
@@ -74,9 +77,11 @@ def _join_one_kind(kind, pattern, in_dirs, lut_kept, out, overwrite, log, veloci
                          + ", ".join(shared))
                 parts[i] = parts[i][~parts[i].video_file.isin(shared)]
         trk = pd.concat(parts, ignore_index=True)
-        master_df = attach_tracking_velocity(master_df, trk)
-        n = master_df["velocity_smooth_px_s"].notna().sum()
-        log.info(f"  velocity_smooth_px_s attached from {velocity_from}: {n}/{len(master_df)} rows matched")
+        master_df = attach_tracking_velocity(master_df, trk, columns=("velocity_smooth_px_s", "floor_temp_mean"))
+        master_df = master_df.rename(columns={"floor_temp_mean": "tracking_floor_temp_c"})
+        for c in ("velocity_smooth_px_s", "tracking_floor_temp_c"):
+            n = master_df[c].notna().sum()
+            log.info(f"  {c} attached from {velocity_from}: {n}/{len(master_df)} rows matched")
 
     if not master_df.empty:
         master_df.to_csv(str(master_csv), index=False)
@@ -103,7 +108,8 @@ def main():
                         help="One or more master_tracking_with_metadata.csv (a lane in several is taken from "
                              "the last; "
                              "compute_velocity() already applied, e.g. the "
-                             "re-track run's) to take velocity_smooth_px_s from: added to the frame table by "
+                             "re-track run's) to take velocity_smooth_px_s and floor_temp_mean (as tracking_floor_temp_c) "
+                             "from: added to the frame table by "
                              "nearest same-lane timestamp within 0.5 s (src/velocity.py::attach_tracking_velocity)")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()

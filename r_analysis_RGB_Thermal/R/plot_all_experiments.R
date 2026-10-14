@@ -71,9 +71,17 @@ plot_all_experiments_dorsal_combined <- function(frames_df, bouts_df, virus_name
 plot_all_experiments_floor <- function(bouts_df, virus_name, tier, colors) {
   em <- .tiered(experiment_means_floor(bouts_df), virus_name, tier)
   if (nrow(em) == 0) return(NULL)
-  .draw_all_experiments(em, colors, title = paste(virus_name, "— Floor preference — each experiment"),
-                        subtitle = .exp_subtitle(virus_name, tier, "one dot = session mean across bouts", em),
+  .draw_all_experiments(em, colors, title = paste(virus_name, "— Floor preference, stationary — each experiment"),
+                        subtitle = .exp_subtitle(virus_name, tier, "one dot = session mean across stationary bouts", em),
                         ylabel = "Mean floor temp at bout (°C)")
+}
+
+plot_all_experiments_floor_moving <- function(frames_df, virus_name, tier, colors) {
+  em <- .tiered(experiment_medians_floor_moving(frames_df), virus_name, tier)
+  if (nrow(em) == 0) return(NULL)
+  .draw_all_experiments(em, colors, title = paste(virus_name, "— Floor temp while moving — each experiment"),
+                        subtitle = .exp_subtitle(virus_name, tier, "one dot = session median of non-stationary samples", em),
+                        ylabel = "Median floor temp under mouse, moving (°C)")
 }
 
 build_all_experiments_plots <- function(frames_df, bouts_df, output_dir,
@@ -94,7 +102,9 @@ build_all_experiments_plots <- function(frames_df, bouts_df, output_dir,
       save(plot_all_experiments_dorsal_combined(frames_df, bouts_df, virus_name, tier, colors),
            file.path(tier_dir, sprintf("experiments_dcz_vehicle_%s_dorsal_all_states.png", virus_name)), 5.5, 5)
       save(plot_all_experiments_floor(bouts_df, virus_name, tier, colors),
-           file.path(tier_dir, sprintf("experiments_dcz_vehicle_%s_floor_preference.png", virus_name)), 5.5, 5)
+           file.path(tier_dir, sprintf("experiments_dcz_vehicle_%s_floor_preference_stationary.png", virus_name)), 5.5, 5)
+      save(plot_all_experiments_floor_moving(frames_df, virus_name, tier, colors),
+           file.path(tier_dir, sprintf("experiments_dcz_vehicle_%s_floor_preference_nonstationary.png", virus_name)), 5.5, 5)
     }
   }
 }

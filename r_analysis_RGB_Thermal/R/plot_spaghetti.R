@@ -6,7 +6,7 @@ library(ggplot2)
 # r_analysis/R/plot_spaghetti.R::plot_dcz_vehicle_paired_one() (which
 # reproduces src/treatment_plots.py::plot_dcz_vehicle_paired() for the
 # legacy pipeline's single mouse_surface_temp_mean outcome) to the 3
-# frame-level feature outcomes + floor preference.
+# frame-level feature outcomes + floor preference (stationary bouts, and while moving).
 #
 # One figure per virus x outcome (Gi and Gq are separate files), faceted by stationary state
 # for the 3 frame-level outcomes, plus a dorsal figure combining both states (time-weighted,
@@ -96,9 +96,22 @@ plot_floor_preference_paired <- function(bouts_df, virus_name, tier, colors) {
     group_by(injection, mouse_id) |>
     summarise(value = mean(mean_floor_temp_c), .groups = "drop")
   if (nrow(mouse_means) == 0) return(NULL)
-  .draw_spaghetti(mouse_means, colors, title = paste(virus_name, "— Floor temperature preference"),
-                  subtitle = .subtitle(virus_name, tier, "per-mouse mean across bouts", mouse_means),
+  .draw_spaghetti(mouse_means, colors, title = paste(virus_name, "— Floor preference, stationary"),
+                  subtitle = .subtitle(virus_name, tier, "per-mouse mean across stationary bouts", mouse_means),
                   ylabel = "Mean floor temp at bout (°C)")
+}
+
+plot_floor_moving_paired <- function(frames_df, virus_name, tier, colors) {
+  mouse_means <- experiment_medians_floor_moving(frames_df) |>
+    filter(virus == virus_name) |>
+    filter_nestlet_tier(tier) |>
+    group_by(injection, mouse_id) |>
+    summarise(value = mean(value), .groups = "drop")
+  if (nrow(mouse_means) == 0) return(NULL)
+  .draw_spaghetti(mouse_means, colors, title = paste(virus_name, "— Floor temp while moving"),
+                  subtitle = .subtitle(virus_name, tier, "per-mouse mean of session medians (non-stationary)",
+                                       mouse_means),
+                  ylabel = "Median floor temp under mouse, moving (°C)")
 }
 
 .save_or_skip <- function(p, path, width, height) {
@@ -123,7 +136,9 @@ build_dcz_vehicle_paired_plots <- function(frames_df, bouts_df, output_dir,
       .save_or_skip(plot_dorsal_combined_paired(frames_df, bouts_df, virus_name, tier, colors),
                     file.path(tier_dir, sprintf("paired_dcz_vehicle_%s_dorsal_all_states.png", virus_name)), 5.5, 5)
       .save_or_skip(plot_floor_preference_paired(bouts_df, virus_name, tier, colors),
-                    file.path(tier_dir, sprintf("paired_dcz_vehicle_%s_floor_preference.png", virus_name)), 5.5, 5)
+                    file.path(tier_dir, sprintf("paired_dcz_vehicle_%s_floor_preference_stationary.png", virus_name)), 5.5, 5)
+      .save_or_skip(plot_floor_moving_paired(frames_df, virus_name, tier, colors),
+                    file.path(tier_dir, sprintf("paired_dcz_vehicle_%s_floor_preference_nonstationary.png", virus_name)), 5.5, 5)
     }
   }
 }
