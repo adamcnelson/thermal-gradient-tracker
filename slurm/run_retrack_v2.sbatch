@@ -15,9 +15,15 @@
 #      mouse_id) unchanged, tracking/bouts repointed (build_v2_retrack_config.py config)
 #   4. Stage 7, ${STAGE7_PARALLEL} lanes at a time
 #
-# Only the tracker changes vs the current outputs. Afterwards (locally): Globus
-# ${RUN_DIR} back, join_landmark_metadata with this run's landmark_outputs + master,
-# repoint R (tracking_activity.R, data.R), rerun R.
+# Only the tracker changes vs the current outputs. Afterwards (locally, from the repo root):
+# Globus ${RUN_DIR} back to thermalFeatures/retrack_v2_2026-10/, then join into the run's OWN
+# folder (never landmark_outputs/, which the retrack_2026-10 R analysis reads):
+#   python scripts/join_landmark_metadata.py \
+#       --landmark-dir thermalFeatures/retrack_v2_2026-10/stage7/landmark_outputs \
+#       --velocity-from thermalFeatures/retrack_v2_2026-10/retrack/master_tracking_with_metadata.csv \
+#       --output-dir thermalFeatures/retrack_v2_2026-10/landmark_join
+#   cd r_analysis_RGB_Thermal && DATA_VERSION=retrack_v2_2026-10 scripts/run_all.sh
+#     -> r_analysis_RGB_Thermal/output/retrack_v2_2026-10/ (R/data_versions.R)
 #
 # Inputs read from Alcova; all output on MedicineBow: ${RUN_DIR}/
 # ---------------------------------------------------------------------------

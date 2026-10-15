@@ -26,13 +26,10 @@ DISTANCE_MAX_GAP_SEC <- 5
 DISTANCE_LABEL <- "Distance travelled (thermal px)"
 VELOCITY_LABEL <- "Velocity (px/s)"
 
-# Same files, same order as the canonical join (join_landmark_metadata.py --velocity-from): a lane
+# The data version's tracking masters (R/data_versions.R), in that version's join order: a lane
 # present in several is taken from the last.
-TRACKING_CSVS <- file.path("..", c(
-  "thermalFeatures/retrack_2026-10/retrack/master_tracking_with_metadata.csv",
-  "thermalFeatures/recover_2026-10/retrack/retrack/master_tracking_with_metadata.csv",
-  "thermalFeatures/recover_lanes_2026-10/retrack/retrack/master_tracking_with_metadata.csv"
-))
+if (!exists("DATA_INPUTS")) source("R/data_versions.R")
+TRACKING_CSVS <- DATA_INPUTS$tracking_csvs
 
 load_tracking <- function(paths = TRACKING_CSVS) {
   cols <- cols_only(video_file = "c", elapsed_time_sec = "d", mouse_centroid_x = "d",

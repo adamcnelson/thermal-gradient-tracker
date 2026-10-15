@@ -13,8 +13,17 @@ conventions, own `renv`, extended from one outcome to three
 
 ## What it reads
 
-`../landmark_outputs/`, already fully metadata-joined by
-`../scripts/join_landmark_metadata.py` (project_brief_v8.md §3.2):
+One **data version** at a time (`R/data_versions.R`, picked with the `DATA_VERSION` env var).
+Each version names exactly which SLURM results it reads: landmark masters, Stage 7 configs (entry
+times) and tracking masters (activity).
+
+| `DATA_VERSION` | SLURM results | Landmark masters |
+|---|---|---|
+| `retrack_2026-10` (default) | retrack_2026-10 + recover_2026-10 + recover_lanes_2026-10 tracking; 4 Stage 7 runs; pre-v2 tracker | `../landmark_outputs/` |
+| `retrack_v2_2026-10` | `slurm/run_retrack_v2.sbatch` (job 24611205, 2026-10-15): all 85 lanes, tracker v2, tracking + Stage 7 in one run | `../thermalFeatures/retrack_v2_2026-10/landmark_join/` |
+
+A new SLURM run gets a new version entry; never repoint an existing one. The landmark masters are
+already fully metadata-joined by `../scripts/join_landmark_metadata.py` (project_brief_v8.md §3.2):
 
 ```
 master_landmarks_with_metadata_bout.csv    # bout-level, one row per stationary bout
@@ -50,8 +59,10 @@ name.
 
 ## What it produces
 
-Figures under `output/` (git-ignored — regenerate via the scripts below
-rather than committing PNGs).
+Figures under `output/<DATA_VERSION>/` (git-ignored — regenerate via the scripts below
+rather than committing PNGs). Each version folder has:
+- `INPUTS.sha256`: checksums of every input. `run_all.sh` stops if the inputs no longer match.
+- `SOURCES.md`: which SLURM jobs produced the inputs.
 
 ## How to run
 
@@ -61,9 +72,10 @@ From `r_analysis_RGB_Thermal/` (this directory):
 renv::restore()   # first time only — installs the locked package versions
 ```
 
-Then `scripts/run_all.sh` (whole sessions → `output/`, entry + 1750 s → `output/1750s_post_entry/`),
-or run scripts under `scripts/` individually; each is self-contained and sources `R/data.R` /
-`R/*.R` helpers as needed (set `ANALYSIS_WINDOW_SEC` for the windowed version).
+Then `DATA_VERSION=<version> scripts/run_all.sh` (whole sessions → `output/<version>/`, entry +
+1750 s → `output/<version>/1750s_post_entry/`), or run scripts under `scripts/` individually;
+each is self-contained and sources `R/data.R` / `R/*.R` helpers as needed (set `DATA_VERSION`, and
+`ANALYSIS_WINDOW_SEC` for the windowed version).
 
 | Script | Brief section | Produces |
 |---|---|---|
@@ -162,7 +174,7 @@ conditions), the same test as the Python pipeline's `paired_tests_dcz_vehicle.cs
   `output/models/activity_lmm.csv`) — the repeated-measures test behind the all_experiments dots.
 - **Equal-length window** (2026-10-14): sessions run 593–2398 s after arena entry, which biases
   totals like distance. `scripts/run_all.sh [WINDOW]` runs everything twice: whole sessions →
-  `output/`, and every lane cut to [entry, entry + 1750 s] → `output/1750s_post_entry/`
+  `output/<version>/`, and every lane cut to [entry, entry + 1750 s] → `output/<version>/1750s_post_entry/`
   (`ANALYSIS_WINDOW_SEC`, `data.R::apply_window()`). 1750 s is the longest window nearly every lane
   fills: 54 of 62 DCZ/Vehicle lanes (8 lanes from 4 sessions with short RGB video, 593–1437 s, are
   dropped; 2000 s would have kept only 8 lanes). Entry times are the human-verified ones Stage 7

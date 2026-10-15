@@ -4,15 +4,14 @@ library(tidyr)
 library(stringr)
 library(lubridate)
 
-# Raw data: landmark_outputs/ at the repo root, one directory up from this
-# workstream's own root -- already fully metadata-joined by
-# scripts/join_landmark_metadata.py (project_brief_v8.md §3.2), unlike the
-# legacy pipeline's per-file tracking CSVs that r_analysis/ has to join
-# itself. No video_file -> lookup join needed here at all.
-LANDMARK_DIR <- file.path("..", "landmark_outputs")
+# Raw data: the data version's landmark masters (R/data_versions.R; DATA_VERSION env var) --
+# already fully metadata-joined by scripts/join_landmark_metadata.py (project_brief_v8.md §3.2),
+# unlike the legacy pipeline's per-file tracking CSVs that r_analysis/ has to join itself. No
+# video_file -> lookup join needed here at all.
+source("R/data_versions.R")
+LANDMARK_DIR <- DATA_INPUTS$landmark_dir
 BOUT_CSV <- file.path(LANDMARK_DIR, "master_landmarks_with_metadata_bout.csv")
 FRAME_CSV <- file.path(LANDMARK_DIR, "master_landmarks_with_metadata_frame.csv")
-LUT_CSV <- file.path("..", "metadata", "LUT_CLEAN_July6.csv")
 
 # ── Analysis window ──────────────────────────────────────────────────────────
 #
@@ -20,19 +19,16 @@ LUT_CSV <- file.path("..", "metadata", "LUT_CLEAN_July6.csv")
 # matters for totals like distance travelled. With env var ANALYSIS_WINDOW_SEC set (e.g. 1750),
 # every lane is cut to [entry, entry + window] and lanes whose last Stage 7 sample falls short
 # of entry + window are dropped entirely, so every remaining session is the same length; figures
-# go to output/<window>s_post_entry/ instead of output/. Unset = whole sessions, output/.
+# go to output/<DATA_VERSION>/<window>s_post_entry/. Unset = whole sessions, output/<DATA_VERSION>/.
 # Entry times are the human-verified ones Stage 7 itself used (STAGE7_CONFIGS).
 ANALYSIS_WINDOW_SEC <- as.numeric(Sys.getenv("ANALYSIS_WINDOW_SEC", "Inf"))
 
-STAGE7_CONFIGS <- file.path("..", c(
-  "stage7_sessions_config.json",
-  "thermalFeatures/stage7_inherited/stage7_sessions_config_inherited.json",
-  "thermalFeatures/recover_2026-10/stage7/stage7_sessions_config_recover.json",
-  "thermalFeatures/recover_lanes_2026-10/stage7/stage7_sessions_config_recover_lanes.json"
-))
+STAGE7_CONFIGS <- DATA_INPUTS$stage7_configs
 
+# OUTPUT_ROOT (env) overrides output/<DATA_VERSION> -- for a scratch rerun only.
 output_root <- function() {
-  if (is.finite(ANALYSIS_WINDOW_SEC)) file.path("output", sprintf("%gs_post_entry", ANALYSIS_WINDOW_SEC)) else "output"
+  base <- Sys.getenv("OUTPUT_ROOT", file.path("output", DATA_VERSION))
+  if (is.finite(ANALYSIS_WINDOW_SEC)) file.path(base, sprintf("%gs_post_entry", ANALYSIS_WINDOW_SEC)) else base
 }
 
 # Figure caption naming the window; NULL (no caption) for whole sessions.
