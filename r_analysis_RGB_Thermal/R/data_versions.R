@@ -11,7 +11,11 @@
 #                       landmark_outputs/. The analysis up to 2026-10-14.
 #   retrack_v2_2026-10  slurm/run_retrack_v2.sbatch (job 24611205, 2026-10-15): all 85 lanes
 #                       re-tracked with tracker v2 + Stage 7 in one run; joined into
-#                       thermalFeatures/retrack_v2_2026-10/landmark_join/.
+#                       thermalFeatures/retrack_v2_2026-10/landmark_join/. Strict border padding
+#                       drops 1.7% of samples (mostly a mouse resting at the crop edge).
+#   retrack_v3_2026-10  slurm/run_retrack_all.sbatch RUN_TAG=retrack_v3_2026-10: v2 + clipped-ROI
+#                       fallback (mouse_roi_clipped column); same lanes, start frames and Stage 7
+#                       calibration as v2; joined into thermalFeatures/retrack_v3_2026-10/landmark_join/.
 # Paths are relative to r_analysis_RGB_Thermal/.
 
 DATA_VERSIONS <- list(
@@ -32,6 +36,11 @@ DATA_VERSIONS <- list(
     landmark_dir = "../thermalFeatures/retrack_v2_2026-10/landmark_join",
     stage7_configs = "../thermalFeatures/retrack_v2_2026-10/stage7/stage7_sessions_config_v2.json",
     tracking_csvs = "../thermalFeatures/retrack_v2_2026-10/retrack/master_tracking_with_metadata.csv"
+  ),
+  "retrack_v3_2026-10" = list(
+    landmark_dir = "../thermalFeatures/retrack_v3_2026-10/landmark_join",
+    stage7_configs = "../thermalFeatures/retrack_v3_2026-10/stage7/stage7_sessions_config_retrack_v3_2026-10.json",
+    tracking_csvs = "../thermalFeatures/retrack_v3_2026-10/retrack/master_tracking_with_metadata.csv"
   )
 )
 

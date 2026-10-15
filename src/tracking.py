@@ -440,6 +440,7 @@ def track_file(
             floor_dist = None
             mouse_stats = None
             floor_stats = None
+            roi_clipped = False
 
             if mouse_mask is None:
                 qc_flag = "no_mouse"
@@ -466,6 +467,13 @@ def track_file(
                 roi_center = find_mouse_roi_center(
                     mouse_mask, config.mouse_roi_radius_px, pad_border=config.mouse_roi_pad_border
                 )
+                if roi_center is None and config.mouse_roi_pad_border and config.mouse_roi_clip_fallback:
+                    # No full circle fits inside the image (mouse against the crop edge): keep the
+                    # sample with the edge-clipped placement, flagged, rather than dropping it.
+                    roi_center = find_mouse_roi_center(mouse_mask, config.mouse_roi_radius_px)
+                    roi_clipped = roi_center is not None
+                    if roi_clipped:
+                        qc_notes += " | Mouse ROI clipped by image border (no full circle fits)"
                 blob_ref = None
                 if roi_center is not None and temp_gate is not None:
                     blob_p95 = float(np.percentile(celsius_frame[mouse_mask], 95))
@@ -534,6 +542,8 @@ def track_file(
                 qc_flag=qc_flag,
                 qc_notes=qc_notes.strip(" |"),
             )
+            if config.mouse_roi_clip_fallback:
+                row["mouse_roi_clipped"] = roi_clipped and mouse_roi_valid
             rows.append(row)
 
             # Save QC overlay image for selected frames

@@ -111,6 +111,14 @@ class TrackingConfig(BaseModel):
         False,
         description="Treat the image edge as background when placing the mouse ROI, so it can't sit half off-frame.",
     )
+    mouse_roi_clip_fallback: bool = Field(
+        False,
+        description=(
+            "With mouse_roi_pad_border: when no full circle fits inside the image (mouse against the "
+            "crop edge), fall back to the edge-clipped placement instead of no_mouse_roi, and record it "
+            "in a mouse_roi_clipped column (only written when this is on)."
+        ),
+    )
     blob_selection: str = Field(
         "largest",
         description="'largest' (blob nearest the last centroid, largest wins) or 'warmest' (highest 95th-pct pixel value).",

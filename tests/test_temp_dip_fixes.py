@@ -84,3 +84,34 @@ class TestTempSmoothing:
         assert np.isnan(out.loc[5, "mouse_surface_temp_smooth"])  # flagged sample stays out
         assert out.loc[4, "mouse_surface_temp_smooth"] == 30      # flagged 10 C never smeared in
         assert out.loc[2, "mouse_surface_temp_mean"] == 26        # raw column untouched
+
+
+class TestClipFallback:
+    """End to end through track_file on a synthetic .seq: the blob is centred on the top row, so
+    only a 10-row strip is in frame -- a full r=6 circle can't fit inside the image, a clipped one can."""
+
+    def _track(self, tmp_path, **cfg):
+        from src.arena_mask import ArenaMask, TrackingConfig
+        from src.tracking import track_file
+        from tests.fixtures.synth_seq import make_moving_blob_frames, write_synthetic_seq
+        seq = tmp_path / "edge.seq"
+        write_synthetic_seq(str(seq), make_moving_blob_frames(
+            n_frames=12, height=30, width=90, blob_radius=9, cy=0, start_x=15, step_x=5))
+        config = TrackingConfig(sampling_interval_frames=1, mouse_roi_radius_px=6, floor_roi_radius_px=6,
+                                min_mouse_area_px=50, background_n_frames=12, camera_fps=10.0,
+                                manual_tracking_start_frame=0, mouse_roi_pad_border=True, **cfg)
+        df, _, _ = track_file(str(seq), config, ArenaMask.from_config(config, (30, 90)),
+                              str(tmp_path / "out"), save_qc_images=False)
+        return df
+
+    def test_strict_padding_drops_edge_samples(self, tmp_path):
+        df = self._track(tmp_path)
+        assert (df.qc_flag == "no_mouse_roi").all()
+        assert "mouse_roi_clipped" not in df.columns   # v2 schema unchanged
+
+    def test_fallback_keeps_and_flags_edge_samples(self, tmp_path):
+        df = self._track(tmp_path, mouse_roi_clip_fallback=True)
+        assert (df.qc_flag == "ok").all()
+        assert df.mouse_roi_clipped.all()
+        assert df.mouse_surface_temp_mean.notna().all()
+        assert df.qc_notes.str.contains("clipped by image border").all()

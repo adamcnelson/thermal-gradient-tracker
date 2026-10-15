@@ -21,6 +21,7 @@ times) and tracking masters (activity).
 |---|---|---|
 | `retrack_2026-10` (default) | retrack_2026-10 + recover_2026-10 + recover_lanes_2026-10 tracking; 4 Stage 7 runs; pre-v2 tracker | `../landmark_outputs/` |
 | `retrack_v2_2026-10` | `slurm/run_retrack_v2.sbatch` (job 24611205, 2026-10-15): all 85 lanes, tracker v2, tracking + Stage 7 in one run | `../thermalFeatures/retrack_v2_2026-10/landmark_join/` |
+| `retrack_v3_2026-10` | `slurm/run_retrack_all.sbatch` with `RUN_TAG=retrack_v3_2026-10`: v2 plus the clipped-ROI fallback (keeps edge-resting samples, flagged `mouse_roi_clipped`) | `../thermalFeatures/retrack_v3_2026-10/landmark_join/` |
 
 A new SLURM run gets a new version entry; never repoint an existing one. The landmark masters are
 already fully metadata-joined by `../scripts/join_landmark_metadata.py` (project_brief_v8.md §3.2):
