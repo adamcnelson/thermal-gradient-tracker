@@ -126,6 +126,27 @@ class TestFindMouseRoiCenter:
         result = find_mouse_roi_center(mask, roi_radius=5)
         assert result is None
 
+    def test_unpadded_center_can_sit_on_border(self):
+        # Mask runs off the top edge: scipy's EDT ignores the edge, so the
+        # deepest point lands on row 0 (the pre-2026-10-14 behavior).
+        mask = np.zeros((30, 60), dtype=bool)
+        mask[0:14, 10:50] = True
+        _, cy = find_mouse_roi_center(mask, roi_radius=6)
+        assert cy == 0
+
+    def test_pad_border_keeps_circle_inside_image(self):
+        mask = np.zeros((30, 60), dtype=bool)
+        mask[0:14, 10:50] = True
+        cx, cy = find_mouse_roi_center(mask, roi_radius=6, pad_border=True)
+        assert roi_fully_inside(cx, cy, 6, mask)
+
+    def test_pad_border_none_when_only_edge_fits(self):
+        # 8 rows touching the edge: r=6 fits only by hanging off-frame
+        mask = np.zeros((30, 60), dtype=bool)
+        mask[0:8, 10:50] = True
+        assert find_mouse_roi_center(mask, roi_radius=6) is not None
+        assert find_mouse_roi_center(mask, roi_radius=6, pad_border=True) is None
+
 
 class TestFindFloorRoi:
     def _setup(self, h=100, w=60):

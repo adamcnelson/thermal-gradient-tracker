@@ -105,6 +105,28 @@ class TrackingConfig(BaseModel):
         description="Minimum blob area to accept during local-fallback recovery (lower than min_mouse_area_px).",
     )
 
+    # Moving-sample temperature dips (2026-10-14 diagnosis). Defaults reproduce
+    # pre-2026-10-14 outputs; tracking_config_retrack_fps10_v2.json turns them on.
+    mouse_roi_pad_border: bool = Field(
+        False,
+        description="Treat the image edge as background when placing the mouse ROI, so it can't sit half off-frame.",
+    )
+    blob_selection: str = Field(
+        "largest",
+        description="'largest' (blob nearest the last centroid, largest wins) or 'warmest' (highest 95th-pct pixel value).",
+    )
+    low_blob_temp_flag_c: Optional[float] = Field(
+        None,
+        description=(
+            "If set, a sample whose whole mouse blob (95th-pct temp) is more than this many C below "
+            "the median of the last accepted ROI means is flagged qc_flag='low_blob_temp' and gets no "
+            "temperature (wrong blob: nestlet, footprint, ghost). None disables."
+        ),
+    )
+    low_blob_temp_history_samples: int = Field(
+        15, description="Number of recent accepted samples in the low_blob_temp reference median."
+    )
+
     # Set automatically when the arena mask is created; null means full image
     image_height: Optional[int] = None
     image_width: Optional[int] = None

@@ -84,6 +84,7 @@ def segment_mouse(
     threshold_sigma: float = 3.0,
     last_centroid: Optional[Tuple[float, float]] = None,
     search_radius: Optional[float] = None,
+    blob_selection: str = "largest",
 ) -> Tuple[Optional[np.ndarray], Optional[Tuple[float, float]], float, dict]:
     """
     Segment the mouse from one thermal frame.
@@ -96,6 +97,12 @@ def segment_mouse(
     threshold_sigma : adaptive threshold multiplier
     last_centroid : (cx, cy) from the previous frame, used to prefer nearby blobs
     search_radius : if set, only consider blobs within this distance of last_centroid
+    blob_selection : "largest" (default; the largest blob near last_centroid) or
+        "warmest" (the blob with the highest 95th-percentile pixel value, ignoring
+        last_centroid). "largest" can latch onto a nestlet or the warm footprint the
+        mouse just left when the mouse moves farther than search_radius in one
+        sampling interval; the mouse is the warmest blob in those cases (checked on
+        real frames 2026-10-14).
 
     Returns
     -------
@@ -130,8 +137,10 @@ def segment_mouse(
         if min_area <= area <= max_area:
             cy, cx = ndimage.center_of_mass(component)
             mean_score = float(np.mean(fg_score[component]))
+            warmth = float(np.percentile(frame[component], 95))
             candidates.append(
-                {"area": area, "cx": cx, "cy": cy, "mask": component, "mean_score": mean_score}
+                {"area": area, "cx": cx, "cy": cy, "mask": component,
+                 "mean_score": mean_score, "warmth": warmth}
             )
 
     debug_info["n_blobs_in_area_range"] = len(candidates)
@@ -139,8 +148,11 @@ def segment_mouse(
     if not candidates:
         return None, None, 0.0, debug_info
 
+    if blob_selection not in ("largest", "warmest"):
+        raise ValueError(f"Unknown blob_selection: {blob_selection!r}")
+
     # If we know where the mouse was, prefer blobs close to that location
-    if last_centroid is not None and search_radius is not None:
+    if blob_selection == "largest" and last_centroid is not None and search_radius is not None:
         lx, ly = last_centroid
         nearby = [
             c for c in candidates
@@ -149,8 +161,8 @@ def segment_mouse(
         if nearby:
             candidates = nearby
 
-    # Pick the largest qualifying blob
-    best = max(candidates, key=lambda c: c["area"])
+    key = "area" if blob_selection == "largest" else "warmth"
+    best = max(candidates, key=lambda c: c[key])
 
     # Confidence: ratio of mean foreground score to threshold, scaled by area adequacy.
     # A score well above threshold and a reasonably sized blob → high confidence.

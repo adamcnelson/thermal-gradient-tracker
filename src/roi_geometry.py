@@ -69,6 +69,7 @@ def roi_overlaps_mask(
 def find_mouse_roi_center(
     mouse_mask: np.ndarray,
     roi_radius: float,
+    pad_border: bool = False,
 ) -> Optional[Tuple[float, float]]:
     """
     Find the best center for a circular ROI of roi_radius inside mouse_mask.
@@ -78,9 +79,18 @@ def find_mouse_roi_center(
     inside the mask when a circle of that radius is centered there. We pick the
     point with the maximum distance (deepest inside the mask — most stable center).
 
+    pad_border: scipy's EDT does not treat the image edge as background, so when
+    the mask touches the edge the "deepest" point can sit ON the border with half
+    the circle off-frame (the rest over floor). True pads the mask with background
+    first so the circle must fit inside the image. Off by default to reproduce
+    pre-2026-10-14 outputs.
+
     Returns (cx, cy) in image coordinates, or None if no valid center exists.
     """
-    dist = ndimage.distance_transform_edt(mouse_mask)
+    if pad_border:
+        dist = ndimage.distance_transform_edt(np.pad(mouse_mask, 1))[1:-1, 1:-1]
+    else:
+        dist = ndimage.distance_transform_edt(mouse_mask)
     # Pixels where a circle of roi_radius would be fully inside the mask
     candidates = dist >= roi_radius
     if not np.any(candidates):

@@ -23,6 +23,7 @@ are unlikely to hijack tracking. Sudden centroid jumps are flagged in qc_notes.
 """
 
 import logging
+from collections import deque
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -45,6 +46,43 @@ log = logging.getLogger("thermal-tracker")
 # If the mouse centroid moves more than this many pixels between sampled frames,
 # flag it as a potential jump.
 JUMP_THRESHOLD_PX = 80
+
+
+class LowBlobTempGate:
+    """
+    Flags a detected blob that is much colder than the mouse has recently been.
+
+    A wrong blob (nestlet, the warm footprint the mouse just left, a background
+    ghost) is cold as a whole, so its 95th-percentile temperature falls well below
+    the recent mouse ROI temperature; a real mouse in an odd posture keeps a warm
+    core. Only accepted samples enter the reference; the history is cleared after
+    reset_after consecutive flags so a genuine sustained change can't lock the
+    gate shut.
+    """
+
+    def __init__(self, margin_c: float, n_history: int, min_history: int = 5, reset_after: int = 30):
+        self.margin_c = margin_c
+        self.min_history = min_history
+        self.reset_after = reset_after
+        self._history: deque = deque(maxlen=n_history)
+        self._n_flagged_in_row = 0
+
+    def check(self, blob_p95_c: float) -> Optional[float]:
+        """Return the reference temperature if this blob should be flagged, else None."""
+        if len(self._history) < self.min_history:
+            return None
+        ref = float(np.median(self._history))
+        if blob_p95_c >= ref - self.margin_c:
+            return None
+        self._n_flagged_in_row += 1
+        if self._n_flagged_in_row >= self.reset_after:
+            self._history.clear()
+            self._n_flagged_in_row = 0
+        return ref
+
+    def accept(self, roi_mean_c: float) -> None:
+        self._history.append(roi_mean_c)
+        self._n_flagged_in_row = 0
 
 
 def _parse_filename_metadata(path: Path) -> dict:
@@ -326,6 +364,10 @@ def track_file(
 
         rows: List[dict] = []
         last_centroid: Optional[Tuple[float, float]] = None
+        temp_gate = (
+            LowBlobTempGate(config.low_blob_temp_flag_c, config.low_blob_temp_history_samples)
+            if config.low_blob_temp_flag_c is not None else None
+        )
         search_radius = min(frame_shape[0], frame_shape[1]) * 0.3  # 30% of frame size
 
         processed = 0
@@ -363,6 +405,7 @@ def track_file(
                 threshold_sigma=config.segmentation_threshold_sigma,
                 last_centroid=last_centroid,
                 search_radius=search_radius,
+                blob_selection=config.blob_selection,
             )
             detection_method = "global" if mouse_mask is not None else "none"
 
@@ -413,22 +456,37 @@ def track_file(
                         qc_flag = "jump"
                         qc_notes = f"Centroid jumped {jump:.1f}px"
 
+                prev_centroid = last_centroid
                 last_centroid = (cx, cy)
 
                 if detection_method == "local_fallback":
                     qc_notes += " | Recovered via local-fallback (low-contrast mouse-floor match)"
 
                 # --- Place mouse ROI ---
-                roi_center = find_mouse_roi_center(mouse_mask, config.mouse_roi_radius_px)
+                roi_center = find_mouse_roi_center(
+                    mouse_mask, config.mouse_roi_radius_px, pad_border=config.mouse_roi_pad_border
+                )
+                blob_ref = None
+                if roi_center is not None and temp_gate is not None:
+                    blob_p95 = float(np.percentile(celsius_frame[mouse_mask], 95))
+                    blob_ref = temp_gate.check(blob_p95)
                 if roi_center is None:
                     qc_flag = qc_flag if qc_flag != "ok" else "no_mouse_roi"
                     qc_notes += " | Mouse ROI does not fit inside mask"
+                elif blob_ref is not None:
+                    # Wrong blob: no temperature, and don't let it steer the next search.
+                    qc_flag = "low_blob_temp"
+                    qc_notes += (f" | Blob 95th-pct {blob_p95:.2f}C < recent mouse median "
+                                 f"{blob_ref:.2f}C - {config.low_blob_temp_flag_c}C")
+                    last_centroid = prev_centroid
                 else:
                     mouse_roi_cx, mouse_roi_cy = roi_center
                     mouse_stats = extract_roi_stats(
                         celsius_frame, mouse_roi_cx, mouse_roi_cy, config.mouse_roi_radius_px
                     )
                     mouse_roi_valid = True
+                    if temp_gate is not None:
+                        temp_gate.accept(mouse_stats["mean"])
 
                     # --- "Floor" / location temperature: same footprint as the mouse ROI,
                     # read from the historical background instead of a live adjacent ROI.

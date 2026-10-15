@@ -76,6 +76,8 @@ def compute_velocity(df: pd.DataFrame, config: BoutsConfig) -> pd.DataFrame:
       velocity_px_s               — Euclidean inter-sample speed (px/s)
       velocity_x_px_s             — x-axis component (px/s)
       velocity_smooth_px_s        — smoothed Euclidean speed
+      mouse_surface_temp_smooth   — gentle rolling median of mouse_surface_temp_mean
+                                    over valid samples only (raw column untouched)
     """
     out = df.copy()
     out = out.sort_values("frame_number").reset_index(drop=True)
@@ -131,6 +133,12 @@ def compute_velocity(df: pd.DataFrame, config: BoutsConfig) -> pd.DataFrame:
         .rolling(sw, center=True, min_periods=2)
         .median()
     )
+
+    if "mouse_surface_temp_mean" in out.columns:
+        out["mouse_surface_temp_smooth"] = _rolling_median_on_valid_subindex(
+            pd.to_numeric(out["mouse_surface_temp_mean"], errors="coerce").where(valid),
+            config.temperature_smoothing_window_samples,
+        )
 
     return out
 

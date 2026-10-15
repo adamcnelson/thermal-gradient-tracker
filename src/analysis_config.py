@@ -22,6 +22,9 @@ class BoutsConfig(BaseModel):
         5.0, description="Centroid-x rolling dispersion threshold (px); edit in analysis_config.json"
     )
     velocity_smoothing_window_samples: int = Field(5, description="Velocity smoothing window")
+    temperature_smoothing_window_samples: int = Field(
+        3, description="Rolling-median window (samples) for mouse_surface_temp_smooth; display/QC trace only"
+    )
     stationary_velocity_threshold_px_per_s: Optional[float] = Field(
         5.0, description="Velocity guard threshold (px/s); edit in analysis_config.json"
     )
