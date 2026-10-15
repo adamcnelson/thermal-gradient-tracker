@@ -30,16 +30,8 @@ def test_trace_up_to_before_first_sample_is_empty():
     assert len(tt) == 0 and len(yy) == 0
 
 
-def test_roi_at_uses_latest_past_sample_only():
-    import pandas as pd
-    trk = pd.DataFrame({
-        "elapsed_time_sec": [10.0, 11.0],
-        "mouse_roi_center_x": [100.0, 200.0],
-        "mouse_roi_center_y": [5.0, 6.0],
-        "mouse_roi_radius_px": [6.0, 6.0],
-    })
-    assert mmv.roi_at(trk, "mouse_roi", 9.9) is None
-    x, _, _, age = mmv.roi_at(trk, "mouse_roi", 10.8)  # nearest would be 11.0; must stay at 10.0
-    assert x == 100.0 and abs(age - 0.8) < 1e-9
-    x, _, _, age = mmv.roi_at(trk, "mouse_roi", 11.0)
-    assert x == 200.0 and age == 0.0
+def test_in_bout_inclusive_edges_and_gaps():
+    bouts = [(10.0, 20.0), (30.0, 40.0)]
+    assert mmv.in_bout(bouts, 10.0) and mmv.in_bout(bouts, 40.0)
+    assert not mmv.in_bout(bouts, 25.0)
+    assert not mmv.in_bout([], 15.0)

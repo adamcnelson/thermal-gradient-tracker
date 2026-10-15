@@ -27,7 +27,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
-from matplotlib.patches import Circle  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.seq_io import (  # noqa: E402
@@ -40,10 +39,10 @@ STATIONARY_VEL_THRESH = 4.0  # px/s, same threshold line as the bouts_diagnostic
 
 TRACKS = [  # (column, y label, color)
     ("velocity_smooth_px_s", "Velocity\n(px/s)", "#7b2d8e"),
-    ("mouse_surface_temp_mean", "Mouse surface\ntemp (°C)", "#d6452f"),
+    ("mouse_surface_temp_mean", "Mouse surface\ntemperature (°C)", "#d6452f"),
     # Floor temp is read from the tracker's background model at the mouse ROI
     # footprint ("same_footprint"), not from a separate live floor patch.
-    ("floor_temp_mean", "Floor temp at\nmouse pos. (°C)", "#2f62d6"),
+    ("floor_temp_mean", "Floor\ntemperature (°C)", "#2f62d6"),
 ]
 
 
@@ -100,32 +99,22 @@ def load_inputs(results_dir, video_file, bout_index, pad_sec):
         raise SystemExit(f"No bout {bout_index} for {video_file} in bout_table.csv")
     b0, b1 = float(bout.bout_start_sec.iloc[0]), float(bout.bout_end_sec.iloc[0])
     t0, t1 = b0 - pad_sec, b1 + pad_sec
-    cols = ["video_file", "elapsed_time_sec", "mouse_roi_center_x", "mouse_roi_center_y",
-            "mouse_roi_radius_px", "mouse_id", "virus", "injection"] + [c for c, _, _ in TRACKS]
+    lane = bouts[(bouts.video_file == video_file) & (bouts.bout_end_sec >= t0) & (bouts.bout_start_sec <= t1)]
+    window_bouts = list(zip(lane.bout_start_sec.astype(float), lane.bout_end_sec.astype(float)))
+    cols = ["video_file", "elapsed_time_sec", "mouse_id", "virus", "injection"] + [c for c, _, _ in TRACKS]
     chunks = pd.read_csv(Path(results_dir) / "master_tracking_with_metadata.csv",
                          usecols=cols, chunksize=200_000)
     trk = pd.concat(c[c.video_file == video_file] for c in chunks)
     trk = trk[(trk.elapsed_time_sec >= t0 - 1) & (trk.elapsed_time_sec <= t1 + 1)]
-    return trk.sort_values("elapsed_time_sec").reset_index(drop=True), (b0, b1), (t0, t1)
+    return trk.sort_values("elapsed_time_sec").reset_index(drop=True), (b0, b1), (t0, t1), window_bouts
 
 
-def roi_at(trk, prefix, t_now):
-    """(x, y, radius, age_sec) of the latest 1 Hz sample at or before t_now, or None.
-
-    Never uses a future sample: between samples the tracker measured nothing, so the
-    circle shows where the last measurement was taken, not where the mouse is now.
-    """
-    past = trk[trk.elapsed_time_sec <= t_now + 1e-6]
-    if past.empty:
-        return None
-    row = past.iloc[-1]
-    x, y, r = row[f"{prefix}_center_x"], row[f"{prefix}_center_y"], row[f"{prefix}_radius_px"]
-    if np.isnan(x) or np.isnan(y):
-        return None
-    return x, y, r, t_now - row.elapsed_time_sec
+def in_bout(bouts, t_now):
+    """True if t_now falls inside any (start, end) stationary bout."""
+    return any(b0 <= t_now <= b1 for b0, b1 in bouts)
 
 
-def build_figure(frame_c, trk, bout, window, title, cmap, vlim):
+def build_figure(frame_c, trk, bouts, window, title, cmap, vlim):
     fig = plt.figure(figsize=(19.2, 10.8), dpi=100)
     gs = fig.add_gridspec(len(TRACKS) + 1, 1, height_ratios=[1.1] + [1] * len(TRACKS),
                           left=0.08, right=0.97, top=0.93, bottom=0.07, hspace=0.25)
@@ -135,10 +124,12 @@ def build_figure(frame_c, trk, bout, window, title, cmap, vlim):
     ax_img.set_xticks([]); ax_img.set_yticks([])
     cbar = fig.colorbar(im, ax=ax_img, orientation="vertical", fraction=0.015, pad=0.01)
     cbar.set_label("°C")
-    roi_circle = Circle((0, 0), 1, fill=False, ec="cyan", lw=1.5)
-    ax_img.add_patch(roi_circle)
-    ax_img.set_title("circle = mouse ROI of the latest 1 Hz tracking sample (solid when sampled, fades until the next)",
-                     fontsize=10, loc="left")
+    # "stationary" label on the colder (darker) end of the lane, where white text reads
+    w = frame_c.shape[1]
+    cold_left = frame_c[:, : w // 10].mean() < frame_c[:, -(w // 10):].mean()
+    state_text = ax_img.text(0.02 if cold_left else 0.98, 0.5, "stationary", transform=ax_img.transAxes,
+                             ha="left" if cold_left else "right", va="center",
+                             color="white", fontsize=22, fontweight="bold", visible=False)
     fig.suptitle(title, fontsize=16)
     clock = fig.text(0.97, 0.955, "", ha="right", fontsize=14, family="monospace")
 
@@ -147,30 +138,28 @@ def build_figure(frame_c, trk, bout, window, title, cmap, vlim):
     for i, (col, label, color) in enumerate(TRACKS):
         ax = fig.add_subplot(gs[i + 1], sharex=axes[0] if axes else None)
         y = trk[col].to_numpy()
-        ax.axvspan(*bout, color="#b9cfe3", alpha=0.6, lw=0,
-                   label="stationary bout" if i == 0 else None)
+        for b in bouts:
+            ax.axvspan(*b, color="#b9cfe3", alpha=0.6, lw=0)
         ax.plot(t, y, color=color, alpha=0.12, lw=1)  # faint full trace for orientation
         (line,) = ax.plot([], [], color=color, lw=2)
         if col == "velocity_smooth_px_s":
-            ax.axhline(STATIONARY_VEL_THRESH, color="red", ls="--", lw=1,
-                       label=f"thresh={STATIONARY_VEL_THRESH:g} px/s")
-            ax.legend(loc="upper right", fontsize=10)
+            ax.axhline(STATIONARY_VEL_THRESH, color="red", ls="--", lw=1)
         lo, hi = np.nanmin(y), np.nanmax(y)
         pad = 0.08 * (hi - lo or 1)
         ax.set_ylim(lo - pad, hi + pad)
-        ax.set_ylabel(label, fontsize=12)
+        ax.set_ylabel(label, fontsize=17)
         if i < len(TRACKS) - 1:
             ax.tick_params(labelbottom=False)
         cursors.append(ax.axvline(window[0], color="red", lw=1.5))
         lines.append((line, y))
         axes.append(ax)
     axes[0].set_xlim(*window)
-    axes[-1].set_xlabel("Time since thermal recording start (s)", fontsize=12)
-    return fig, im, roi_circle, clock, lines, cursors
+    axes[-1].set_xlabel("Time since thermal recording start (s)", fontsize=17)
+    return fig, im, state_text, clock, lines, cursors
 
 
 def render(args):
-    trk, bout, window = load_inputs(args.results_dir, args.video_file, args.bout_index, args.pad_sec)
+    trk, bout, window, window_bouts = load_inputs(args.results_dir, args.video_file, args.bout_index, args.pad_sec)
     seq_path = Path(args.seq_root) / args.seq_subdir / args.video_file
     if not seq_path.exists():
         matches = list(Path(args.seq_root).glob(f"*/{args.video_file}"))
@@ -184,14 +173,13 @@ def render(args):
     if planck is None:
         raise SystemExit("No Planck constants (exiftool missing?); refusing the linear fallback")
     frames = [raw_to_celsius(f, planck) for f in read_frame_range(str(seq_path), f_start, f_stop)]
-    vlim = args.vlim or tuple(np.percentile(np.stack(frames), [1, 99.8]).round(1))
 
     meta = trk.iloc[0]
     session = args.video_file.replace(".seq", "")
     title = (f"{session}  |  mouse {meta.mouse_id}, {meta.virus}, {meta.injection}  |  "
              f"stationary bout {args.bout_index} ({bout[0]:.0f}-{bout[1]:.0f} s)  |  {args.speed:g}x speed")
-    fig, im, roi_circle, clock, lines, cursors = build_figure(
-        frames[0], trk, bout, window, title, args.cmap, vlim)
+    fig, im, state_text, clock, lines, cursors = build_figure(
+        frames[0], trk, window_bouts, window, title, args.cmap, args.vlim)
 
     out_fps = THERMAL_FPS * args.speed
     out = Path(args.out)
@@ -211,11 +199,7 @@ def render(args):
     for i, frame in enumerate(frames):
         t_now = (f_start + i) / THERMAL_FPS
         im.set_data(frame)
-        roi = roi_at(trk, "mouse_roi", t_now)
-        roi_circle.set_visible(roi is not None)
-        if roi is not None:
-            roi_circle.center, roi_circle.radius = roi[:2], roi[2]
-            roi_circle.set_alpha(max(0.2, 1.0 - 0.8 * roi[3]))
+        state_text.set_visible(in_bout(window_bouts, t_now))
         for (line, y), cursor in zip(lines, cursors):
             line.set_data(*trace_up_to(t_trk, y, t_now))
             cursor.set_xdata([t_now, t_now])
@@ -239,7 +223,7 @@ def parse_args(argv=None):
     p.add_argument("--pad-sec", type=float, default=30.0)
     p.add_argument("--speed", type=float, default=5.0, help="playback speed; output fps = 10 * speed")
     p.add_argument("--cmap", default="inferno")
-    p.add_argument("--vlim", type=float, nargs=2, help="fixed thermal color limits (°C); default 1-99.8th pct")
+    p.add_argument("--vlim", type=float, nargs=2, default=[15.0, 35.0], help="fixed thermal color limits (°C)")
     p.add_argument("--out", required=True)
     return p.parse_args(argv)
 
